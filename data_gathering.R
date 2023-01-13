@@ -18,7 +18,8 @@ mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_data")
 ### 0.3 grab the inlets with monitoring data
 
 # Systems within the study
-systems <- c('171-1', '172-1', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
+# systems <- c('171-1', '172-1', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
+systems <- c('171-1', '171-2', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
 current_date <- today()
 
 
@@ -72,7 +73,20 @@ wo_asset_query <- paste0("SELECT * FROM Azteca.WORKORDER wo LEFT JOIN Azteca.WOR
     wo.WORKORDERID = woe.WORKORDERID WHERE
     woe.ENTITYUID IN ", facility_asset_ids)
 
+# double check for subsurf inspection/maint wo's
+subsurf_maint_query <- paste0("SELECT * FROM Azteca.WORKORDER wo LEFT JOIN Azteca.WORKORDERENTITY woe ON
+    wo.WORKORDERID = woe.WORKORDERID WHERE DESCRIPTION = 'SUB-SURFACE MAINTENANCE' OR DESCRIPTION = 'SUBSURFACE INSPECTION'" )
 
+
+subsurf_workorders <- dbGetQuery(cw_con, subsurf_maint_query) 
+# Remove duplicates
+subsurf_workorders <- subsurf_workorders[!duplicated(colnames(subsurf_workorders))]
+# Filter by date
+subsurf_workorders <- subsurf_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) %>%
+                      dplyr::filter(ACTUALSTARTDATE <= end_date)
+# check if locations match pipe fittings
+feature_ids <- c(piperuns$Pipe.Run.Asset.ID, piperuns$Attached.Asset)
+subsurf_workorders <- subsurf_workorders %>% dplyr::filter(ENTITYUID %in% feature_ids | FEATUREUID %in% feature_ids)
 
 
 gi_workorders <- dbGetQuery(cw_con, wo_query)
@@ -89,24 +103,25 @@ gi_workorders <- gi_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) 
 gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) %>%
   dplyr::filter(ACTUALSTARTDATE <= end_date)
 
-# List of work order types of interests
+# List of work order types of interests (created by Johanna on 1/11/2023)
 descriptions <- c("SUBSURFACE INSPECTION",
                   "SUB-SURFACE MAINTENANCE",
-                  "SUB-SURFACE INLET CLEANING",
-                  "SURFACE INLET PROTECTION MAINTENANCE",
-                  "SUB-SURFACE INLET PROTECTION MAINTENANCE",
-                  "INLET MAINTENANCE",
                   "DRAINAGE MODIFICATION",
+                  "SUB-SURFACE INLET CLEANING",
+                  "SUB-SURFACE INLET PROTECTION MAINTENANCE",
                   "IC - INLET EXAM",
-                  "IC - CLEAN INLET",
-                  "INLET MAINTENANCE")
+                  "INLET MAINTENANCE",
+                  "INLET EXAM")
 
 gi_workorders <- gi_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
 gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
 
-# Write .csv of work orders
+
+# Write .csv of both sets of work orders
 write.csv(gi_asset_workorders, 
           file = paste0(folderpath, "/gi_workorders.csv"))
+write.csv(subsurf_workorders,
+          file = paste0(folderpath, "/subsurface_workorders.csv"))
 
 
 #### 2.0 Calculate storm event, overtopping Summary Metrics ####
@@ -162,6 +177,11 @@ write.csv(gi_asset_workorders,
 
 ## write green inlet data
   
+## Create directory if needed
+  if(dir.exists(paste0(folderpath, "/", current_date)) == FALSE){
+     dir.create(paste0(folderpath, "/", current_date)) 
+  }
+   
   
 for(i in 1:nrow(gi_events)){
   
@@ -262,7 +282,7 @@ for(i in 1:nrow(gi_events)){
              draindown_error=ddown_error,
              percentstorageused_relative=percentstorageused_relative,
              overtop= overtop)
-    
+
     write.table(metrics_output, file = paste0(folderpath, "/", current_date, "/gi_metrics.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
     
     #Manually managing memory just in case
@@ -308,4 +328,9 @@ gi_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(overtopping_count = 
   dplyr::select(ow_uid,smp_id,ow_suffix,overtopping_count, avg_RPSU) %>%
    unique() %>% dplyr::filter(!is.na(smp_id))
 
+
+## Join metrics with storm information
+
+ot_data <- gi_metrics %>% left_join(rain_radar_event, by = "radar_event_uid")
+write.csv(ot_data, paste0(folderpath, "/", current_date, "/overtopping_data.csv"))
 
