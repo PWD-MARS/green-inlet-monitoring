@@ -15,37 +15,57 @@ library(cowplot)
 #### 1.0 Set up ####
 # Read data, set up folders
 folderpath <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/"
-file_path <- "2023-01-11/overtopping_data.csv"
+
+# Get list of folders
+folders <- list.files(folderpath)
+# Remove files
+folders <- folders[grep(x = folders, pattern = "\\.", invert = TRUE) %>% as.vector()]
+
+# Find latest date
+latest_date <- NA
+for(i in 1:length(folders)){
+  if(try(as.Date(folders[i]), silent = TRUE) %>% is.Date()){
+    # set new date
+    new_date <- as.Date(folders[i])
+    
+    # usurp if latest date
+    latest_date <- max(c(new_date, latest_date), na.rm = TRUE)
+  }
+}
+
+file_path <- paste0(latest_date,"/overtopping_data.csv")
 raw_data <- read.csv(paste0(folderpath,"/",file_path))
 
+# read key dates
+date_file <- "graph_dates.csv"
+raw_dates <- read.csv(paste0(folderpath,date_file))
+  
 # Create plot path if needed
 current_date <- today()
 plotpath <- paste0(folderpath,"/Overtopping Graphs/",current_date)
 if(!dir.exists(plotpath)){dir.create(plotpath)}
 
 # Connect to database
-
 mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_data")
-
-# SMP ID's
-# smps <- unique(raw_data$smp_id)
-# 
-# test_smp <- dplyr::filter(data, smp_id == "171-1-1")
-# 
-# test_design_storm <- dbGetQuery(mars_con, "SELECT sys_creditedstormsizemanaged_in FROM external.mat_systembdvcache WHERE system_id = '171-1'")
-# 
-# 
-# test_smp_data <- test_smp %>% dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt, smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, overtop)
 
 # list of unique monitoring locations
 mon_locs <- raw_data %>% dplyr::select(smp_id, ow_suffix) %>% distinct()
 
 
-#### 2.0 Plot function ####
-overtopping_intensity_plot <- function(data, design_storm, event_dates = NA, event_descriptions  NA){
+#### 1.5 SMP ID to SystemID  function ####
+
+smp_2_sys <- function(smp_id){
+  x <- str_split(smp_id, pattern = "-") %>% unlist()
+  sys_id <- paste0(x[1],"-",x[2])
+  return(sys_id)
+}
+
+#### 2.0 Plotting functions ####
+overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, event_descriptions = NULL){
   
   #clean dates for x-axis
   data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
   min_date <- min(lubridate::date(data$eventdatastart_edt))
   max_date <- max(lubridate::date(data$eventdatastart_edt))
   
@@ -69,8 +89,8 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NA, eve
     geom_point(aes(color = factor(overtop),
                    size = factor(overtop))) +
     geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
-    scale_y_continuous(limits = c(0,max(3,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.1)) +
-    scale_x_datetime(date_minor_breaks = "1 month") +
+    scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
+    scale_x_datetime(date_minor_breaks = "2 months") +
     ylab("Event Peak Intensity (in/hr)") + xlab("Event Start Date") +
     geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
               y = 2.6, color = "black", size = 12 / .pt, hjust = "left",
@@ -80,7 +100,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NA, eve
     #add design storm values
     geom_point(aes(x = eventdatastart_edt,
                    y = eventpeakintensity_inhr, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
-    scale_shape_manual(name = "Exceeds Design Storm", values = c(2), labels = c("True"), na.translate = FALSE) +
+    scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
     scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     #from pwdgsi plots
@@ -93,11 +113,17 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NA, eve
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
       panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
       panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
-      #legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+      legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
       legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
   
-  if(!is.na(event_dates) & !is.na(event_descriptions)){
-    plot_x + geom_vline(xintercept = event_dates)
+  if(length(event_dates) > 0 & length(event_descriptions) > 0){
+    for(i in 1:length(event_dates)){
+      plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+                         geom_text(label = event_descriptions[i], angle = 90,
+                                   y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
+                                   x = as.numeric(event_dates[i] + days(8)))
+    }
+    
   }
   
   
@@ -106,8 +132,82 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NA, eve
   
 }
   
+pipejet_overtop_plot <- function(data, design_storm){
+  
+  #clean dates for x-axis
+  data <- data %>% dplyr::filter(!is.na(last_jet))
+  
+  # data$last_jet <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  # event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
+  # min_date <- min(lubridate::date(data$last_jet))
+  # max_date <- max(lubridate::date(data$last_jet))
+  
+  
+  #Set overtop to sizes
+  data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
+  data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
+  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
+  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  
+  #subset of data exceeding design stor
+  data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
+  data <- data %>% mutate("ExceedDesignStorm" = ifelse(eventdepth_in > design_storm,"True",NA))
+  # y-max value
+  ymax_obs <- max(data$eventpeakintensity_inhr, na.rm = TRUE)
+  
+  
+  plot_x <- ggplot(data,
+                   aes(x = last_jet,
+                       y = eventpeakintensity_inhr)) +
+    geom_point(aes(color = factor(overtop),
+                   size = factor(overtop))) +
+    geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
+    scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
+    ylab("Event Peak Intensity (in/hr)") + xlab("Days Since Last Pipe Jetting") +
+    geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
+              y = 2.6, color = "black", size = 12 / .pt, hjust = "left",
+              x = data$last_jet[round(0.05*length(data$last_jet))]) +
+    ggtitle(paste0("Event Peak Intesity and Overtopping vs Days Since Pipe Jetting for ",data$ow_suffix[1],", ",data$smp_id[1])) +
+    
+    #add design storm values
+    geom_point(aes(x = last_jet,
+                   y = eventpeakintensity_inhr, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
+    scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
+    scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    #from pwdgsi plots
+    ggplot2::theme(
+      #text = element_text(size = rel(2)), #size previously set to 16
+      axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+      axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+      axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+      panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+      panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+      panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+      panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+      legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+      legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+  
+  # if(length(event_dates) > 0 & length(event_descriptions) > 0){
+  #   for(i in 1:length(event_dates)){
+  #     plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+  #       geom_text(label = event_descriptions[i], angle = 90,
+  #                 y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
+  #                 x = as.numeric(event_dates[i] + days(8)))
+  #   }
+  #   
+  # }
+  
+  
+  
+  return(plot_x)
+  
+}
 
-#### 3.0 iterate through locations, savings plots
+
+#### 3.0 iterate through locations, savings plots ####
+
+#### 3.1 Plots with storms over Design depth ####
   
 for(i in 1:nrow(mon_locs)){
 
@@ -118,15 +218,26 @@ plot_data <- raw_data %>%
              dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt,
                            smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop)
 
+# Get System ID
+sys_id <- smp_2_sys(mon_locs$smp_id[i])
+
 # Grab design storm Depth  
 design_storm <- dbGetQuery(mars_con,
-                          paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_smpbdv
-                                  LEFT JOIN external.tbl_systembdv
-                                  ON tbl_smpbdv.system_id = tbl_systembdv.system_id
-                                  WHERE smp_id = '",mon_locs$smp_id[i],"'")) %>% pull
+                           paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_systembdv
+                                  WHERE system_id = '",sys_id,"'")) %>% pull
+
+# Select maintenance events
+event_data <- raw_dates %>% dplyr::filter(system_id == sys_id &
+                                          graph == TRUE) %>%
+                            dplyr::select(system_id, date_complete, graph_text)
+
 
 # create plot
-location_plot <- overtopping_intensity_plot(plot_data, design_storm)    
+location_plot <- overtopping_intensity_plot(data =plot_data, 
+                                            design_storm = design_storm,
+                                            event_dates = event_data$date_complete,
+                                            event_descriptions = event_data$graph_text)    
+
 
 # Save Plot
 ggsave(plot = location_plot,
@@ -136,73 +247,103 @@ ggsave(plot = location_plot,
 }
 
 
+#### 3.2 Plots excluding storms over Design depth ####
+
+# This is clunky, chunky code to later be corrected. One could easily make both plots in a single for-loop
+
+for(i in 1:nrow(mon_locs)){
+
+# Subset plot data
+plot_data <- raw_data %>%
+  dplyr::filter(smp_id == mon_locs$smp_id[i]) %>%
+  dplyr::filter(ow_suffix == mon_locs$ow_suffix[i]) %>%
+  dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt,
+                smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop)
+
+# Get System ID
+sys_id <- smp_2_sys(mon_locs$smp_id[i])
+
+# Grab design storm Depth  
+design_storm <- dbGetQuery(mars_con,
+                           paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_systembdv
+                                  WHERE system_id = '",sys_id,"'")) %>% pull
+
+#filter to only include design storms
+plot_data <- plot_data %>% dplyr::filter(eventdepth_in <= design_storm)
+
+# Select maintenance events
+event_data <- raw_dates %>% dplyr::filter(system_id == sys_id &
+                                            graph == TRUE) %>%
+  dplyr::select(system_id, date_complete, graph_text)
+
+
+# create plot
+location_plot <- overtopping_intensity_plot(data =plot_data, 
+                                            design_storm = design_storm,
+                                            event_dates = event_data$date_complete,
+                                            event_descriptions = event_data$graph_text)    
+
+
+# Save Plot
+ggsave(plot = location_plot,
+       filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_design_storm_only.png"),
+       width = 10, height = 8)
+
+}
+
+
+#### Days since pipe jetting plots ####
+for(i in 1:nrow(mon_locs)){
+ 
+   # Subset plot data
+  plot_data <- raw_data %>%
+    dplyr::filter(smp_id == mon_locs$smp_id[i]) %>%
+    dplyr::filter(ow_suffix == mon_locs$ow_suffix[i]) %>%
+    dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt,
+                  smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop)
+  
+  # Get System ID
+  sys_id <- smp_2_sys(mon_locs$smp_id[i])
+  
+  # Grab design storm Depth  
+  design_storm <- dbGetQuery(mars_con,
+                             paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_systembdv
+                                  WHERE system_id = '",sys_id,"'")) %>% pull
+  
+  # Select maintenance events
+  event_data <- raw_dates %>% dplyr::filter(system_id == sys_id & graph == TRUE) %>%
+                              dplyr::select(system_id, date_complete, graph_text)
+  
+  pipe_jetting_days <- raw_dates %>% dplyr::filter(system_id == sys_id & graph == TRUE) %>%
+                                     dplyr::select(system_id, date_complete, graph_text) %>%
+                                     dplyr::filter(graph_text == "Pipe Jetting")
+  
+
+  for(j in 1:nrow(plot_data)){
+    date_x <- plot_data$eventdatastart_edt[j] %>% mdy_hm()
+    jet_days <- pipe_jetting_days$date_complete %>% mdy() %>% as_datetime()
+    
+    time_difs <- date_x - jet_days
+    time_difs <- time_difs[time_difs > 0]
+    
+    plot_data$last_jet[j] <- ifelse(length(time_difs) > 0,
+                                    min(time_difs),
+                                    NA)
+    
+  }
+  
+  plot_z <- pipejet_overtop_plot(data =plot_data, 
+                                 design_storm = design_storm)
+  
+  
+  # Save Plot
+  ggsave(plot = plot_z,
+         filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_days_since_jetting.png"),
+         width = 10, height = 8)
+  
+}
+
+
 
 ########## test zone ####
 
-data <- test_smp_data
-
-#clean dates for x-axis
-data$eventdatastart_edt <- data$eventdatastart_edt %>% as.POSIXct()
-min_date <- min(lubridate::date(data$eventdatastart_edt))
-max_date <- max(lubridate::date(data$eventdatastart_edt))
-
-date_breaks <- seq(min_date, max_date, by = "days") %>% as.POSIXct()   
-mon_breaks <- seq(paste(year(min_date),month(min_date),"1",sep ="-"),
-                  paste(year(max_date),month(max_date),"1",sep ="-"), by = "months") %>%
-              as.POSIXct()
-
-
-
-#Set overtop to sizes
-data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
-data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-data$overtop_col[data$overtop == TRUE] <- "firebrick3"
-
-# y-max value
-ymax_obs <- max(data$eventpeakintensity_inhr, na.rm = TRUE)
-
-
-plot_x <- ggplot(data,
-               aes(x = eventdatastart_edt,
-                   y = eventpeakintensity_inhr)) +
-  geom_point(aes(color = factor(overtop),
-             size = factor(overtop))) +
-  scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
-  scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
-  geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
-  scale_y_continuous(limits = c(0,max(3,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.1)) +
-  scale_x_datetime(date_minor_breaks = "1 month") +
-  ylab("Event Peak Intensity (in/hr)") + xlab("Event Start Date") +
-  geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
-             y = 2.6, color = "black", size = 12 / .pt, hjust = "left",
-             x = data$eventdatastart_edt[round(0.05*length(data$eventdatastart_edt))]) +
-  ggtitle(paste0("Event Peak Intesity and Overtopping vs Time for ",data$ow_suffix[1],", ",data$smp_id[1])) +
-  
-  #from pwdgsi plots
-  ggplot2::theme(
-    #text = element_text(size = rel(2)), #size previously set to 16
-    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
-    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
-    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
-    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
-    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
-    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
-    #legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
-    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
-
-plot_x
-
-
-ggsave("C:/users/brian.cruice/desktop/overtop_test.png",x_pk, width = 7.5, height = 6)
-
-### Junk yard
-# x_avg <- ggplot(data,
-#                 aes(x = eventdatastart_edt,
-#                     y = eventavgintensity_inhr,
-#                     col = factor(overtop_col),
-#                     size = overtop_sz)) +
-#   geom_point() +
-#   geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
-#   scale_x_datetime()

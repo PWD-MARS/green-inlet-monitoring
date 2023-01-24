@@ -10,6 +10,10 @@ library(DBI)
 library(pwdgsi)
 library(lubridate)
 
+# not in operator
+`%!in%` <- Negate(`%in%`)
+
+
 ### 0.2 connect
 cw_con <- odbc::dbConnect(odbc::odbc(),"CityWorks",uid = "cwread", pwd = "readcw", database = "PWD_Cityworks")
 mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_data")
@@ -18,7 +22,6 @@ mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_data")
 ### 0.3 grab the inlets with monitoring data
 
 # Systems within the study
-# systems <- c('171-1', '172-1', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
 systems <- c('171-1', '171-2', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
 current_date <- today()
 
@@ -128,6 +131,12 @@ write.csv(subsurf_workorders,
 
 # Complete log of storms for each ow
 
+
+# read the data from the most recent run of this script
+last_run_date <- "2023-01-11"
+latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
+
+
 # grab list of storm events
   # modified code chunk from SC analysis
   # Get the SC data
@@ -140,6 +149,10 @@ write.csv(subsurf_workorders,
   
   
   
+  #Kludge: ow_leveldata_raw coerced to 00 seconds instead of 59 seconds for the inner_join
+  ow_leveldata_raw$dtime_est  <- ow_leveldata_raw$dtime_est %>% lubridate::round_date(unit = "minute")
+  
+  
   # Create a table with smp_id, ow_suffix, and rainevent_uid
   ow_radar_events <- sc_batch_newcat %>%
     inner_join(ow, by="smp_id") %>%
@@ -147,6 +160,7 @@ write.csv(subsurf_workorders,
     inner_join(rain_radar_event, by= "radar_uid") %>%
     inner_join(ow_leveldata_raw, by=c("ow_uid"="ow_uid","eventdatastart_edt"="dtime_est"))%>%
     select(smp_id,ow_uid, ow_suffix,radar_event_uid, batch_uid,eventdatastart_edt) 
+  
   
   # Create summary table of rainfall events for Green Inlets
   ow_event_vals <- ow_radar_events %>% dplyr::filter(ow_uid %in% gi_ow$ow_uid) %>%
@@ -168,20 +182,43 @@ write.csv(subsurf_workorders,
                                                  end_dtime_est IS NULL"))
 
 
-  # Split OW and GI radar events
   
+  #Create error log
   error_log <- data.frame(ow_event_row = NA, error_message = NA, stringsAsFactors=FALSE)
-  
+
+  # Split OW and GI radar events
   ow_events <- ow_radar_events[grepl(ow_radar_events$ow_suffix,pattern = "OW"),]
   gi_events <- ow_radar_events[grepl(ow_radar_events$ow_suffix,pattern = "GI"),]
 
 ## write green inlet data
   
-## Create directory if needed
+  #Create error log
+  error_log <- data.frame(ow_event_row = NA, error_message = NA, stringsAsFactors=FALSE)
+  
+    
+  #check for only new GI data
+  
+  #create unique identifier for ow-events
+  ow_event_vals <- ow_event_vals %>% mutate(ow_event = paste0(ow_uid,"-",radar_event_uid))
+  
+  gi_events <- gi_events %>% mutate(ow_event = paste0(ow_uid,"-",radar_event_uid))
+  
+  latest_data <- latest_data %>% mutate(ow_event = paste0(ow_uid,"-",radar_event_uid))
+
+  # Limit calculation of GI metrics to those not yet done 
+  check <- gi_events %>% dplyr::filter(ow_event %!in% latest_data$ow_event)
+  
+  ## Create directory if needed
   if(dir.exists(paste0(folderpath, "/", current_date)) == FALSE){
      dir.create(paste0(folderpath, "/", current_date)) 
   }
    
+  
+# Copy latest data over if necessary
+  if(file.exists())
+  file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"),
+            to = paste0(folderpath, "/", current_date))
+
   
 for(i in 1:nrow(gi_events)){
   
@@ -316,18 +353,27 @@ ow_metrics <- ow_metrics %>% dplyr::filter(smp_radar_uid %in% gi_metrics$smp_rad
 
 # summarize
 
-ow_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(overtopping_count = sum(overtop),
-                                                            avg_RPSU = mean(percentstorageused_relative)) %>%
+ow_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
+                                                            overtopping_count = sum(overtop),
+                                                            avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
                              dplyr::left_join(ow_metrics, by = "ow_uid") %>%
-                            dplyr::select(ow_uid,smp_id,ow_suffix,overtopping_count, avg_RPSU) %>%
+                            dplyr::select(ow_uid,smp_id,ow_suffix,n, overtopping_count, avg_RPSU) %>%
                             unique() %>% dplyr::filter(!is.na(smp_id))
 
-gi_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(overtopping_count = sum(overtop),
-                                                            avg_RPSU = mean(percentstorageused_relative)) %>%
+ow_summary <- ow_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+
+gi_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
+                                                            overtopping_count = sum(overtop),
+                                                            avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
   dplyr::left_join(gi_metrics, by = "ow_uid") %>%
-  dplyr::select(ow_uid,smp_id,ow_suffix,overtopping_count, avg_RPSU) %>%
+  dplyr::select(ow_uid,smp_id,ow_suffix,n,overtopping_count, avg_RPSU) %>%
    unique() %>% dplyr::filter(!is.na(smp_id))
 
+gi_summary <- gi_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+
+
+write.csv(gi_summary, file = paste0(folderpath, "/", current_date, "/gi_summary.csv"))
+write.csv(ow_summary, file = paste0(folderpath, "/", current_date, "/ow_summary.csv"))
 
 ## Join metrics with storm information
 
