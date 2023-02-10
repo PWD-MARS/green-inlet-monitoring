@@ -11,10 +11,14 @@ library(pwdgsi)
 library(lubridate)
 library(ggplot2)
 library(cowplot)
+library(plotly)
+library(lme4)
 
 #### 1.0 Set up ####
 # Read data, set up folders
 folderpath <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/"
+
+
 
 # Get list of folders
 folders <- list.files(folderpath)
@@ -33,12 +37,16 @@ for(i in 1:length(folders)){
   }
 }
 
-file_path <- paste0(latest_date,"/overtopping_data.csv")
+file_path <- paste0(latest_date,"/ot_with_last_jet_data.csv")
 raw_data <- read.csv(paste0(folderpath,"/",file_path))
 
 # Cityworks events
 event_dates <- read.csv(paste0(folderpath,"/","graph_dates.csv"))
 
+
+# read inlet types
+inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
+                              sheetName = "Inlet Depths")
 
 #monitoring locations
 mon_locs <- raw_data %>% dplyr::select(smp_id, ow_suffix) %>% distinct()
@@ -91,7 +99,7 @@ filtered_data <- filtered_data %>% dplyr::filter(smp_id != '439-1-1' |
 # Make sure we're distinct
 filtered_data <- distinct(filtered_data)
 
-#### 2.0 Data investigation ####
+#### 2.0 Data Visualization ####
 
 # boxplots
 
@@ -207,7 +215,174 @@ ot_peak_season_bplot <- ggplot(data = filtered_data, aes(y = eventpeakintensity_
 ot_peak_season_bplot
 
 
+# Review trap vs. no trap
+trap_status <- inlet_type %>% dplyr::select(ow_uid, Trap, drainage_area_sf)
+
+filtered_data <- filtered_data %>% left_join(trap_status, by = "ow_uid")
+
 # Save Plots
+ot_peak_inlet_plot <- ggplot(data = filtered_data, aes(y = eventpeakintensity_inhr, x = Trap, fill = overtop)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), aes(fill = overtop), shape = 21, alpha = 0.7) +
+  xlab("Trap Present?") + ylab("Event 15-minute Peak Intensity (in/hr)") +
+  ggtitle("Event Peak Intensities by SMP ID and Overtopping Status") +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_peak_inlet_plot
+
+
+# Save boxplots
+bplot_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/boxplots"
+
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intensity_by_SMP.png"), plot = ot_peak_bplot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_avg_intensity_by_SMP.png"), plot = ot_avg_bplot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intesity_by_inlet_type.png"), plot = ot_peak_inlet_plot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intesity_by_season.png"), plot = ot_peak_season_bplot, width = 10, height = 8)
 
 
 
+#### 2.5 Drainage Area ####
+
+DA_plot <- ggplot(data = filtered_data, aes(x = drainage_area_sf, y = eventpeakintensity_inhr, col = overtop, size = overtop)) +
+           geom_point() + 
+           ylab("Event Peak Intensity (in/hr)") + xlab("Inlet Drainage Area (sf)") +
+           scale_x_continuous(limits = c(0, 24000)) +
+           ggtitle("Event Peak Intesity vs Inlet Drainage Area") +
+  
+  #add design storm values
+  scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+  scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+  #from pwdgsi plots
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+
+
+
+#### 3.0 Model Creation ####
+
+# Look at some distributions
+hist(filtered_data$eventpeakintensity_inhr)
+# take ln to normalize 
+hist(log(filtered_data$eventpeakintensity_inhr))
+
+
+hist(filtered_data$eventavgintensity_inhr)
+# take ln to normalize 
+hist(log(filtered_data$eventavgintensity_inhr))
+
+# use ln to get better residuals
+filtered_data$log_peak_int <- log(filtered_data$eventpeakintensity_inhr)
+filtered_data$log_avg_int <- log(filtered_data$eventavgintensity_inhr)
+
+
+# Turn each monitoring location into a factor
+filtered_data$ow_uid  <- filtered_data$ow_uid %>% as.factor()
+
+
+# model 1
+model1 <- glm(data = filtered_data, overtop~ Trap + eventpeakintensity_inhr, family = binomial)
+
+hist(model1$residuals)
+qqnorm(model1$residuals)
+
+# model 2
+model2 <- lm(overtop ~ Trap + eventpeakintensity_inhr, data = filtered_data)
+
+anova(model2)
+hist(model2$residuals)
+shapiro.test(model2$residuals)
+qqnorm(model2$residuals)
+
+# model 3
+model3 <- lm(overtop ~ Trap, data = filtered_data)
+
+anova(model3)
+hist(model3$residuals)
+anova(model3)
+qqnorm(model3$residuals)
+
+
+# model 4
+model4 <- glm(data = filtered_data, overtop~ Trap + log_peak_int, family = binomial)
+
+hist(model4$residuals)
+qqnorm(model4$residuals)
+shapiro.test(model4$residuals)
+
+
+# model 5
+
+model5 <- lm(overtop ~ Trap + log_peak_int, data = filtered_data)
+
+anova(model5)
+hist(model5$residuals)
+shapiro.test(model5$residuals)
+qqnorm(model5$residuals)
+
+# model 6
+
+model6 <- lm(overtop ~ Trap + log_avg_int, data = filtered_data)
+
+anova(model6)
+hist(model6$residuals)
+shapiro.test(model6$residuals)
+qqnorm(model6$residuals)
+
+# model 7
+model7 <- lm(overtop ~ log_avg_int, data = filtered_data)
+
+anova(model7)
+hist(model7$residuals)
+shapiro.test(model7$residuals)
+qqnorm(model7$residuals)
+
+# model 8
+model8 <- lm(overtop ~ log_peak_int, data = filtered_data)
+
+anova(model8)
+hist(model8$residuals)
+shapiro.test(model8$residuals)
+qqnorm(model8$residuals)
+
+# model 9
+model9 <- lm(overtop ~ log_peak_int + Trap + last_jet,data = filtered_data)
+
+anova(model9) # ANOVA results show days since jetting being insigninficant
+hist(model9$residuals)
+shapiro.test(model9$residuals)
+qqnorm(model9$residuals); qqline(model9$residuals)
+
+# model 10
+model10 <- lmer( overtop ~ log_peak_int + Trap + last_jet + (1|ow_uid), data = filtered_data)
+
+model10_residuals <- resid(model10)
+anova(model10)
+hist(model10_residuals)
+shapiro.test(model10_residuals)
+qqnorm(model10_residuals); qqline(model10_residuals)
+
+
+#### Combine ####
+filtered_data_by_site <- filtered_data %>%

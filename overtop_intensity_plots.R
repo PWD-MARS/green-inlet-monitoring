@@ -11,6 +11,7 @@ library(pwdgsi)
 library(lubridate)
 library(ggplot2)
 library(cowplot)
+library(xlsx)
 
 #### 1.0 Set up ####
 # Read data, set up folders
@@ -40,6 +41,11 @@ raw_data <- read.csv(paste0(folderpath,"/",file_path))
 date_file <- "graph_dates.csv"
 raw_dates <- read.csv(paste0(folderpath,date_file))
   
+# read inlet types
+inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
+                              sheetName = "Inlet Depths")
+
+
 # Create plot path if needed
 current_date <- today()
 plotpath <- paste0(folderpath,"/Overtopping Graphs/",current_date)
@@ -293,6 +299,10 @@ ggsave(plot = location_plot,
 
 
 #### Days since pipe jetting plots ####
+
+last_jet <- data.frame(matrix(ncol = 3))
+colnames(last_jet) <- c("ow_uid","radar_event_uid","last_jet")
+
 for(i in 1:nrow(mon_locs)){
  
    # Subset plot data
@@ -314,18 +324,27 @@ for(i in 1:nrow(mon_locs)){
   event_data <- raw_dates %>% dplyr::filter(system_id == sys_id & graph == TRUE) %>%
                               dplyr::select(system_id, date_complete, graph_text)
   
+  # Only pipe jetting events
   pipe_jetting_days <- raw_dates %>% dplyr::filter(system_id == sys_id & graph == TRUE) %>%
                                      dplyr::select(system_id, date_complete, graph_text) %>%
                                      dplyr::filter(graph_text == "Pipe Jetting")
   
 
   for(j in 1:nrow(plot_data)){
+    
+    #get the current date in question
     date_x <- plot_data$eventdatastart_edt[j] %>% mdy_hm()
+    
+    # list of dates where pipe jetting occurred, coerced into datetime format
     jet_days <- pipe_jetting_days$date_complete %>% mdy() %>% as_datetime()
     
+    # Find the number of days between the current date and each pipe jetting event
     time_difs <- date_x - jet_days
+
+    # Remove pipe jetting events happening in the future; limit it to a list of past pipe jetting events
     time_difs <- time_difs[time_difs > 0]
     
+    # Find the shortest distance in days since a pipe jetting event. Set to NA if none are found.
     plot_data$last_jet[j] <- ifelse(length(time_difs) > 0,
                                     min(time_difs),
                                     NA)
@@ -341,8 +360,20 @@ for(i in 1:nrow(mon_locs)){
          filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_days_since_jetting.png"),
          width = 10, height = 8)
   
+  last_jet_x <- plot_data %>% dplyr::select(ow_uid,radar_event_uid,last_jet)
+  
+  last_jet <- rbind(last_jet,last_jet_x)
+  
 }
 
+
+# save last_jet to overtopping
+ot_last_jet <- raw_data %>% dplyr::left_join(last_jet, by = c("ow_uid", "radar_event_uid")) %>%
+                            dplyr::distinct()
+
+
+write.csv(ot_last_jet,
+          file = paste0(folderpath,latest_date,"/ot_with_last_jet_data.csv"))
 
 
 ########## test zone ####

@@ -133,7 +133,7 @@ write.csv(subsurf_workorders,
 
 
 # read the data from the most recent run of this script
-last_run_date <- "2023-01-11"
+last_run_date <- "2023-01-20"
 latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
 
 
@@ -206,7 +206,7 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
   latest_data <- latest_data %>% mutate(ow_event = paste0(ow_uid,"-",radar_event_uid))
 
   # Limit calculation of GI metrics to those not yet done 
-  check <- gi_events %>% dplyr::filter(ow_event %!in% latest_data$ow_event)
+  new_gi_events <- gi_events %>% dplyr::filter(ow_event %!in% latest_data$ow_event)
   
   ## Create directory if needed
   if(dir.exists(paste0(folderpath, "/", current_date)) == FALSE){
@@ -215,16 +215,16 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
    
   
 # Copy latest data over if necessary
-  if(file.exists())
+  if(file.exists(paste0(folderpath, "/", current_date,"/gi_metrics.csv")) == FALSE){
   file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"),
             to = paste0(folderpath, "/", current_date))
-
+  }
   
-for(i in 1:nrow(gi_events)){
+for(i in 1:nrow(new_gi_events)){
   
   tryCatch({
     
-    temp_df <- gi_events[i,]
+    temp_df <- new_gi_events[i,]
     
     rain_start_date <- rain_radar_event %>%
       filter(radar_event_uid == temp_df[1, "radar_event_uid"]) %>%
