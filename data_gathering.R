@@ -106,6 +106,23 @@ gi_workorders <- gi_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) 
 gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) %>%
   dplyr::filter(ACTUALSTARTDATE <= end_date)
 
+
+# Frequency of "SURFACE INLET PROTECTION MAINTENANCE" for each inlet
+
+
+
+in_prot_maint <- gi_workorders %>% dplyr::filter(DESCRIPTION == "SURFACE INLET PROTECTION MAINTENANCE") %>%
+                 # strip curly brackets to associate facility id
+                 dplyr::mutate(facility_id = toupper(as.character(gsub("\\{|\\}","",FEATUREUID)))) %>%
+                 # associate with facility id
+                 dplyr::left_join(assets, by = "facility_id")
+
+wo_plot <- ggplot(data = in_prot_maint, aes(x = component_id)) + geom_bar() + ggtitle('Count of "Surface Inlet Protection Maintenance" Work Orders') +
+  ylab("Count of Work Orders") + xlab("Inlet Componenet ID") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
+
+ggsave(plot = wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/WO_frequency.png"), width = 8, height = 4.5)
+
 # List of work order types of interests (created by Johanna on 1/11/2023)
 descriptions <- c("SUBSURFACE INSPECTION",
                   "SUB-SURFACE MAINTENANCE",
@@ -131,9 +148,20 @@ write.csv(subsurf_workorders,
 
 # Complete log of storms for each ow
 
-
+folders <- list.files(folderpath)
+folders <- folders[!grepl(pattern = "\\.",folders)]
 # read the data from the most recent run of this script
-last_run_date <- "2023-01-20"
+last_run_date <- NA
+for(i in 1:length(folders)){
+  if(try(as.Date(folders[i]), silent = TRUE) %>% is.Date()){
+    # set new date
+    new_date <- as.Date(folders[i])
+    
+    # usurp if latest date
+    last_run_date <- max(c(new_date, last_run_date), na.rm = TRUE)
+  }
+}
+
 latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
 
 
@@ -340,6 +368,26 @@ for(i in 1:nrow(new_gi_events)){
 gi_metrics <-  read.csv(paste0(folderpath, "/", current_date, "/gi_metrics.csv"))
 
 # latest ow metrics
+
+ow_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/48 Short-Circuiting GSI Data Analysis/Calculation Phase/Metrics Calculations/"
+
+ow_folders <- list.files(ow_folder)
+ow_folders <- ow_folders[!grepl(pattern = "\\.",ow_folders)]
+# read the data from the most recent run of this script
+# this should me moved into a fx at some point... migrate into SC analysis as well
+last_run_date <- NA
+for(i in 1:length(ow_folders)){
+  if(try(as.Date(ow_folders[i]), silent = TRUE) %>% is.Date()){
+    # set new date
+    new_date <- as.Date(ow_folders[i])
+    
+    # usurp if latest date
+    last_run_date <- max(c(new_date, last_run_date), na.rm = TRUE)
+  }
+}
+
+
+
 ow_file <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/48 Short-Circuiting GSI Data Analysis/Calculation Phase/Metrics Calculations/2023-01-03/metrics.csv"
 ow_metrics <-  read.csv(ow_file)
 

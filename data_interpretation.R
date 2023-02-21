@@ -48,6 +48,11 @@ event_dates <- read.csv(paste0(folderpath,"/","graph_dates.csv"))
 inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
                               sheetName = "Inlet Depths")
 
+# Read system characteristics
+sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
+sys_char <- xlsx::read.xlsx(file = sys_char_file,
+                            sheetName = "Characteristics")
+
 #monitoring locations
 mon_locs <- raw_data %>% dplyr::select(smp_id, ow_suffix) %>% distinct()
 
@@ -63,7 +68,7 @@ smp_2_sys <- function(smp_id){
 #### 1.5 Essential Date Removals ####
 
 #add system to raw_data
-raw_data <- raw_data %>% dplyr::mutate(system_id = smp_2_sys(smp_id))
+raw_data$system_id <- sapply(raw_data$smp_id,smp_2_sys)
 
 # Removing sections of time based on observations from ciytworks and SRTS
 
@@ -219,6 +224,7 @@ ot_peak_season_bplot
 trap_status <- inlet_type %>% dplyr::select(ow_uid, Trap, drainage_area_sf)
 
 filtered_data <- filtered_data %>% left_join(trap_status, by = "ow_uid")
+filtered_data <- filtered_data %>% left_join(sys_char, by = 'system_id')
 
 # Save Plots
 ot_peak_inlet_plot <- ggplot(data = filtered_data, aes(y = eventpeakintensity_inhr, x = Trap, fill = overtop)) +
@@ -277,6 +283,11 @@ DA_plot <- ggplot(data = filtered_data, aes(x = drainage_area_sf, y = eventpeaki
     legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
     legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
 
+
+
+
+
+#### 2.6 PCP/z-scores ####
 
 
 
@@ -369,7 +380,7 @@ qqnorm(model8$residuals)
 # model 9
 model9 <- lm(overtop ~ log_peak_int + Trap + last_jet,data = filtered_data)
 
-anova(model9) # ANOVA results show days since jetting being insigninficant
+anova(model9) # ANOVA results show days since jetting being insignificant
 hist(model9$residuals)
 shapiro.test(model9$residuals)
 qqnorm(model9$residuals); qqline(model9$residuals)
@@ -384,5 +395,20 @@ shapiro.test(model10_residuals)
 qqnorm(model10_residuals); qqline(model10_residuals)
 
 
-#### Combine ####
-filtered_data_by_site <- filtered_data %>%
+#### summarize ####
+
+filtered_data_by_site <- filtered_data %>% dplyr::group_by(ow_uid) %>%
+                         summarize(Size = n(),
+                                   Overtop_pct = sum(overtop)/n()) %>%
+                         distinct() %>%
+                         dplyr::left_join(select(filtered_data, ow_uid, system_id), by = "ow_uid") %>%  
+                         left_join(sys_char, by = "system_id") %>% 
+                         left_join()
+                         dplyr::filter(GI == "GI1") %>% distinct()
+
+
+# overtopping percentage vs. max distribution pipe flow way
+
+plot(filtered_data_by_site$Dist.Pipe.Head..ft.,filtered_data_by_site$Overtop_pct)
+
+model11 <- lmer(Overtop_pct ~ Trap + Dist.Pipe.Head..ft. + System.Loading.Ratio, data = filtered_data_by_site)

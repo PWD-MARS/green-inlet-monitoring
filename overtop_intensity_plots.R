@@ -97,7 +97,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
     geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
     scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
     scale_x_datetime(date_minor_breaks = "2 months") +
-    ylab("Event Peak Intensity (in/hr)") + xlab("Event Start Date") +
+    ylab("Event Peak Intensity (in/hr)") + xlab("Event Date/Time") +
     geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
               y = 2.6, color = "black", size = 12 / .pt, hjust = "left",
               x = data$eventdatastart_edt[round(0.05*length(data$eventdatastart_edt))]) +
