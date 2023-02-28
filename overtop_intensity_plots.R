@@ -45,6 +45,11 @@ raw_dates <- read.csv(paste0(folderpath,date_file))
 inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
                               sheetName = "Inlet Depths")
 
+# read System characteristics
+sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
+sys_char <- xlsx::read.xlsx(file = sys_char_file,
+                            sheetName = "Characteristics")
+
 
 # Create plot path if needed
 current_date <- today()
@@ -70,7 +75,7 @@ smp_2_sys <- function(smp_id){
 overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, event_descriptions = NULL){
   
   #clean dates for x-axis
-  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::ymd_hms()
   event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
   min_date <- min(lubridate::date(data$eventdatastart_edt))
   max_date <- max(lubridate::date(data$eventdatastart_edt))
@@ -194,21 +199,91 @@ pipejet_overtop_plot <- function(data, design_storm){
       legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
       legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
   
-  # if(length(event_dates) > 0 & length(event_descriptions) > 0){
-  #   for(i in 1:length(event_dates)){
-  #     plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
-  #       geom_text(label = event_descriptions[i], angle = 90,
-  #                 y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
-  #                 x = as.numeric(event_dates[i] + days(8)))
-  #   }
-  #   
-  # }
+
   
+  return(plot_x)
+  
+}
+
+
+
+overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates = NULL, event_descriptions = NULL){
+  
+  #clean dates for x-axis
+  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::ymd_hms()
+  event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
+  min_date <- min(lubridate::date(data$eventdatastart_edt))
+  max_date <- max(lubridate::date(data$eventdatastart_edt))
+  
+  
+  #Set overtop to sizes
+  data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
+  data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
+  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
+  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  
+  #subset of data exceeding design stor
+  data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
+  data <- data %>% mutate("ExceedDesignStorm" = ifelse(eventdepth_in > design_storm,"True",NA))
+  
+  
+  # qmax value
+  qmax <- system_chars$Max.Flow.w..Perforations..CFS. %>% as.numeric() %>% round(2)
+  
+  # y-max value
+  ymax_obs <- max(c(data$qpeak,qmax), na.rm = TRUE)*1.1 # buffer for higher qpeak values
+  
+  plot_x <- ggplot(data,
+                   aes(x = eventdatastart_edt,
+                       y = qpeak)) +
+    geom_point(aes(color = factor(overtop),
+                   size = factor(overtop)))
+    
+    
+    if(length(event_dates) > 0 & length(event_descriptions) > 0){
+      for(i in 1:length(event_dates)){
+        plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+          geom_text(label = event_descriptions[i], angle = 90,
+                    y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
+                    x = as.numeric(event_dates[i] + days(8)))
+      }
+      
+    }
+    
+  plot_x <- plot_x +  geom_hline(yintercept = qmax, color = "red", size = 1.5) +
+                      scale_y_continuous(limits = c(0,ymax_obs), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
+                      scale_x_datetime(date_minor_breaks = "2 months") +
+                      ylab("Event Qpeak (cfs)") + xlab("Event Date/Time") +
+                      geom_text(label = paste0("System Distribution Pipe Qmax: ",qmax," cfs"),
+                                y = (qmax*1.1), color = "black", size = 12 / .pt, hjust = "left",
+                                x = data$eventdatastart_edt[round(0.05*length(data$eventdatastart_edt))]) +
+                      ggtitle(paste0("Event Peak Flow Rate and Overtopping vs Time for ",data$ow_suffix[1],", ",data$smp_id[1])) +
+                      
+                      #add design storm values
+                      geom_point(aes(x = eventdatastart_edt,
+                                     y = qpeak, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
+                      scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
+                      scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+                      scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+                      #from pwdgsi plots
+                      ggplot2::theme(
+                        #text = element_text(size = rel(2)), #size previously set to 16
+                        axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+                        axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+                        axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+                        panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+                        panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+                        panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+                        panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+                        legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+                        legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
   
   
   return(plot_x)
   
 }
+
+
 
 
 #### 3.0 iterate through locations, savings plots ####
@@ -333,7 +408,7 @@ for(i in 1:nrow(mon_locs)){
   for(j in 1:nrow(plot_data)){
     
     #get the current date in question
-    date_x <- plot_data$eventdatastart_edt[j] %>% mdy_hm()
+    date_x <- plot_data$eventdatastart_edt[j] %>% ymd_hms()
     
     # list of dates where pipe jetting occurred, coerced into datetime format
     jet_days <- pipe_jetting_days$date_complete %>% mdy() %>% as_datetime()
@@ -372,9 +447,76 @@ ot_last_jet <- raw_data %>% dplyr::left_join(last_jet, by = c("ow_uid", "radar_e
                             dplyr::distinct()
 
 
+
+
+#### 3.3 Plot Qpeak vs. Qmax, see above re: clunkiness; chunkiness ####
+
+
+qpeak <- data.frame(matrix(ncol = 3))
+colnames(qpeak) <- c("ow_uid","radar_event_uid","qpeak")
+
+for(i in 1:nrow(mon_locs)){
+  
+  # Subset plot data
+  plot_data <- raw_data %>%
+    dplyr::filter(smp_id == mon_locs$smp_id[i]) %>%
+    dplyr::filter(ow_suffix == mon_locs$ow_suffix[i]) %>%
+    dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt,
+                  smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop)
+  
+  # Get System ID
+  sys_id <- smp_2_sys(mon_locs$smp_id[i])
+  
+  # Grab design storm Depth  
+  design_storm <- dbGetQuery(mars_con,
+                             paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_systembdv
+                                  WHERE system_id = '",sys_id,"'")) %>% pull
+  
+  # Select maintenance events
+  event_data <- raw_dates %>% dplyr::filter(system_id == sys_id &
+                                              graph == TRUE) %>%
+    dplyr::select(system_id, date_complete, graph_text)
+  
+  
+  # Select system characteristics
+  loc_sys_char <- sys_char %>% dplyr::filter(smp_id == mon_locs$smp_id[i],
+                                                           GI == mon_locs$ow_suffix[i])
+    
+  # calculate qpeak; rational method using peak intensity as i. Q= CiA. Use full system drainage area for distr. pipe
+  plot_data$qpeak <- plot_data$eventavgintensity_inhr*0.95*loc_sys_char$System.Drainage.Area..SF. * (1/12) * (1/3600) # last terms to cfs
+  
+  # Let's try TR-55 for comparisons sake
+  
+  #impervious retention, S assuming Cn of 98 for impervious DA
+  # tr55_S <- (1000/98) -10
+  # 
+  # plot_data$q_tr55 <- (plot_data$eventdepth_in - 0.2*tr55_S)^2/(plot_data$eventdepth_in + 0.8*tr55_S)
+  # 
+  # create plot
+  qpeak_plot <- overtopping_qmax_plot(data =plot_data, 
+                                              design_storm = design_storm,
+                                              system_chars = loc_sys_char,
+                                              event_dates = event_data$date_complete,
+                                              event_descriptions = event_data$graph_text)    
+  
+  
+  # Save Plot
+  ggsave(plot = qpeak_plot,
+         filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_qpeak.png"),
+         width = 10, height = 8)
+  
+  qpeak_x <- plot_data %>% dplyr::select(ow_uid,radar_event_uid,qpeak)
+  
+  qpeak <- rbind(qpeak, qpeak_x)
+  
+  
+}
+
+
+# add qpeak to ot_last_jet and save to server
+ot_last_jet <- ot_last_jet %>% dplyr::left_join(qpeak, by = c("ow_uid", "radar_event_uid")) %>%
+  dplyr::distinct()
+
 write.csv(ot_last_jet,
           file = paste0(folderpath,latest_date,"/ot_with_last_jet_data.csv"))
-
-
-########## test zone ####
 

@@ -9,6 +9,8 @@ library(odbc)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
+library(xlsx)
+
 
 # not in operator
 `%!in%` <- Negate(`%in%`)
@@ -30,6 +32,10 @@ current_date <- today()
 folderpath <-  "//pwdoows//OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis"
 piperuns <- read.csv(paste0(folderpath,"/","pipe_run.csv"))
 
+# System characteristics
+sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
+sys_char <- xlsx::read.xlsx(file = sys_char_file,
+                            sheetName = "Characteristics")
 
 
 # Grab ow_uids from MARS
@@ -117,11 +123,11 @@ in_prot_maint <- gi_workorders %>% dplyr::filter(DESCRIPTION == "SURFACE INLET P
                  # associate with facility id
                  dplyr::left_join(assets, by = "facility_id")
 
-wo_plot <- ggplot(data = in_prot_maint, aes(x = component_id)) + geom_bar() + ggtitle('Count of "Surface Inlet Protection Maintenance" Work Orders') +
+wo_in_prot_plot <- ggplot(data = in_prot_maint, aes(x = component_id)) + geom_bar() + ggtitle('Count of "Surface Inlet Protection Maintenance" Work Orders') +
   ylab("Count of Work Orders") + xlab("Inlet Componenet ID") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
 
-ggsave(plot = wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/WO_frequency.png"), width = 8, height = 4.5)
+ggsave(plot = wo_in_prot_plot, file = paste0(folderpath,"/Preliminary Visualizations/Inlet_Protection_WO_frequency.png"), width = 8, height = 4.5)
 
 # List of work order types of interests (created by Johanna on 1/11/2023)
 descriptions <- c("SUBSURFACE INSPECTION",
@@ -137,12 +143,24 @@ gi_workorders <- gi_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
 gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
 
 
+
+
 # Write .csv of both sets of work orders
 write.csv(gi_asset_workorders, 
           file = paste0(folderpath, "/gi_workorders.csv"))
 write.csv(subsurf_workorders,
           file = paste0(folderpath, "/subsurface_workorders.csv"))
 
+# bind the two together for plotting
+binded <- rbind(gi_asset_workorders,subsurf_workorders) #%>% 
+          # turn feature id format into facility id format
+          # dplyr::mutate(facility_id = toupper(as.character(gsub("\\{|\\}","",FEATUREUID)))) %>%
+          # associate with facility id
+          # dplyr::inner_join(assets, by = "facility_id")
+
+gi_wo_plot <- ggplot(data = binded, aes(x = component_id)) + geom_bar() + ggtitle('Count of Reviewed Work Orders') +
+  ylab("Count of Work Orders") + xlab("Inlet Componenet ID") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
 
 #### 2.0 Calculate storm event, overtopping Summary Metrics ####
 
@@ -410,7 +428,7 @@ ow_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
 
 ow_summary <- ow_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
 
-gi_summary <- ow_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
+gi_summary <- gi_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
                                                             overtopping_count = sum(overtop),
                                                             avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
   dplyr::left_join(gi_metrics, by = "ow_uid") %>%
