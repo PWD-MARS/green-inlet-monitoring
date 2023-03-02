@@ -402,13 +402,19 @@ qmax <- left_join(filtered_data, qmax, by = "smp_id.x") %>%
 qpeak_perc <- 100*(sum(qmax$qpeak > qmax$qmax)/
                           length(qmax$qpeak))
 
+#assume 50% occlusioin
+
+
 # same percent, overtopping only
 
 qmax_oto <- qmax %>% dplyr::filter(overtop == TRUE)
 qpeak_perc_oto <- 100*(sum(qmax_oto$qpeak > qmax_oto$qmax)/
                          length(qmax_oto$qpeak))
 
-#### 3.0 Model Creation ####
+
+#### 3.0 STAT Model Creation ####
+
+
 
 # 3.1 Indpendent variable transformations and scaling
 
@@ -487,9 +493,9 @@ variable_table %>% kbl(booktabs = TRUE) %>%
 # 3.2 Correlation Matrix
 filtered_data_by_site <- filtered_data %>% dplyr::group_by(ow_uid) %>%
   summarize(Size = n(),
-            Overtop_pct = sum(overtop)/n()) %>%
+            Overtop_pct = 100*sum(overtop)/n()) %>%
   distinct() %>%
-  dplyr::left_join(select(filtered_data, ow_uid, system_id), by = "ow_uid") %>%  
+  dplyr::left_join(select(filtered_data, ow_uid, system_id, Trap), by = "ow_uid") %>%  
   left_join(sys_char, by = "system_id") %>% distinct()
 
 
@@ -543,9 +549,58 @@ chart.Correlation(cor_plot_storm, histogram = TRUE)
 
 
 
+# 3.3 ANOVA analysis for Trap Presence
+
+
+# one site specific boxplot
+
+#rename for graphic
+
+filtered_data_by_site$`Inlet Type` <- filtered_data_by_site$Trap
+filtered_data_by_site$`Inlet Type`[filtered_data_by_site$`Inlet Type` == TRUE] <- "Old (with Trap)"
+filtered_data_by_site$`Inlet Type`[filtered_data_by_site$`Inlet Type` == FALSE] <- "New (without Trap)"
+
+  
+site_inlet_type_plot <- ggplot(data = filtered_data_by_site ,aes(y = Overtop_pct, x = `Inlet Type`, fill = `Inlet Type`)) + 
+                            geom_boxplot() +
+                            geom_point(position=position_jitterdodge(jitter.width = 0.1),
+                                       aes(fill = `Inlet Type`), shape = 21, alpha = 0.7, size = 3) +
+                            ylab("Percent of Storm Events with Overtopping (%)") +
+                            ggtitle("Percent Overtopping by Inlet Type") +
+  #house style plotting
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    title = ggplot2::element_text(size = ggplot2::rel(1.3), color = "black"), 
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "none", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(2.4)))
+
+site_inlet_type_plot
+
+
+if(plot_save == TRUE){
+  ggsave(filename = paste0(bplot_folder,"/Overtopping_Percent_vs_Inlet_Type.png"), plot = site_inlet_type_plot, width = 7.5, height = 6)
+}
+
+#binomial ANOVA
+
+trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
+
+trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
+
+summary(trap_model)
+
+# 3.4 Predictive models
+
 # Turn each monitoring location into a factor
 filtered_data$ow_uid  <- filtered_data$ow_uid %>% as.factor()
-
 
 
 # model 1
@@ -603,7 +658,7 @@ model7 <- lm(overtop ~ log_avg_int, data = filtered_data)
 anova(model7)
 hist(model7$residuals)
 shapiro.test(model7$residuals)
-qqnorm(model7$residuals)
+qqnorm(model7$residuals); qqline(model7$residuals)
 
 # model 8
 model8 <- lm(overtop ~ log_peak_int, data = filtered_data)
@@ -611,7 +666,7 @@ model8 <- lm(overtop ~ log_peak_int, data = filtered_data)
 anova(model8)
 hist(model8$residuals)
 shapiro.test(model8$residuals)
-qqnorm(model8$residuals)
+qqnorm(model8$residuals); qqline(model8$residuals)
 
 # model 9
 model9 <- lm(overtop ~ log_peak_int + Trap + last_jet,data = filtered_data)
@@ -620,6 +675,7 @@ anova(model9) # ANOVA results show days since jetting being insignificant
 hist(model9$residuals)
 shapiro.test(model9$residuals)
 qqnorm(model9$residuals); qqline(model9$residuals)
+summary(model9)
 
 # model 10
 # ow_uid as character to apply clustering as a random effects variable
@@ -655,13 +711,13 @@ summary(model11)
 
 #model12
 
-model12 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
+model12 <- glmer(overtop ~  log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
 
 model12_residuals <- resid(model12)
 anova(model12)
 hist(model12_residuals)
 shapiro.test(model12_residuals)
-qqnorm(model12_residuals); qqline(model12_residuals)
+qqnorm(model12_residuals); abline(a = 0, b = 1)
 summary(model12)
 
 
