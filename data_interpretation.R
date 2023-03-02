@@ -290,15 +290,64 @@ ot_peak_q_bplot <- ggplot(data = filtered_data, aes(y = qpeak, x = smp_id.x, fil
 
 ot_peak_q_bplot
 
+
+
+# Overtopping percent vs stat present
+
+ot_trap_bplot <- ggplot(data = filtered_data, aes(y = eventpeakintensity_inhr, x = overtop, fill = Trap)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), aes(fill = Trap), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Overtopping") + ylab("Event 15-minute Peak Intensity (in/hr)") +
+  ggtitle("Event 15-minute Peak Intensity by SMP ID and Overtopping Status") +
+
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_trap_bplot
+
+# Overtopping percent vs stat present
+
+ot_trap_avg_bplot <- ggplot(data = filtered_data, aes(y = eventavgintensity_inhr, x = overtop, fill = Trap)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), aes(fill = Trap), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Overtopping") + ylab("Event 15-minute Peak Intensity (in/hr)") +
+  ggtitle("Event 15-minute Peak Intensity by SMP ID and Overtopping Status") +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_trap_avg_bplot
+
 # Save boxplots
 bplot_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/boxplots"
 
 if(plot_save == TRUE){
 ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intensity_by_SMP.png"), plot = ot_peak_bplot, width = 10, height = 8)
 ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_avg_intensity_by_SMP.png"), plot = ot_avg_bplot, width = 10, height = 8)
-ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intesity_by_inlet_type.png"), plot = ot_peak_inlet_plot, width = 10, height = 8)
-ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intesity_by_season.png"), plot = ot_peak_season_bplot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intensity_by_inlet_type.png"), plot = ot_peak_inlet_plot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_intensity_by_season.png"), plot = ot_peak_season_bplot, width = 10, height = 8)
 ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_peak_Q_by_SMP.png"), plot = ot_peak_q_bplot, width = 10, height = 8)
+ggsave(filename = paste0(bplot_folder,"/Overtopping_vs_avg_intensity_by_Trap.png"), plot = ot_trap_avg_bplot, width = 10, height = 8)
 }
 
 
@@ -344,11 +393,11 @@ peak_int_perc <- 100*(sum(ot_filtered_data$eventpeakintensity_inhr > 2.5)/
 
 #percent exceeding qmax
 qmax <- sys_char %>% dplyr::select(smp_id, Max.Flow.w..Perforations..CFS.)
-colnames(qmax) <- c("smp_id","qmax")
+colnames(qmax) <- c("smp_id.x","qmax")
 qmax$qmax %<>% as.numeric()
 
-qmax <- left_join(filtered_data, qmax, by = "smp_id") %>%
-        dplyr::select(radar_event_uid,smp_id,qpeak,qmax,overtop) %>% distinct()
+qmax <- left_join(filtered_data, qmax, by = "smp_id.x") %>%
+        dplyr::select(radar_event_uid,smp_id.x,qpeak,qmax,overtop) %>% distinct()
 
 qpeak_perc <- 100*(sum(qmax$qpeak > qmax$qmax)/
                           length(qmax$qpeak))
@@ -451,7 +500,9 @@ cor_plot <- filtered_data_by_site %>% dplyr::select(Overtop_pct,
                                                     System.Drainage.Area..SF.,
                                                     Inlet.Drainage.Area..SF.,
                                                     Max.Flow.w..Perforations..CFS.,
-                                                    Distrib..Slope....)
+                                                    Distrib..Length..FT.,
+                                                    X..Distrib..Bends,
+                                                    Distrib..Size.)
 
 colnames(cor_plot) <- c("Overtop_pct",
                         "LR",
@@ -460,10 +511,12 @@ colnames(cor_plot) <- c("Overtop_pct",
                         "Sys_DA_sf",
                         "Inlet_DA_sf",
                         "Qmax_cfs",
-                        "Dist_pipe_slope")
+                        "Dist_pipe_length",
+                        "Number_of_dist_pipe_bends",
+                        "Dist_pipe_size")
 # make numeric
 cols <- c(1:ncol(cor_plot))
-cor_plot[,cols] = apply(cor_plot[,cols], 2, function(x) as.numeric(as.character(x)));
+cor_plot[,cols] = apply(cor_plot[,cols], 2, function(x) as.numeric(as.character(x)))
 
 chart.Correlation(cor_plot, histogram = TRUE)
 # png(filename = paste0(bplot_folder,"/correlation_plot.png"))
@@ -475,11 +528,15 @@ cor_plot_storm <- filtered_data %>% dplyr::select(log_event_depth,
                                                   log_avg_int,
                                                   log_qpeak,
                                                   sqrt_last_jet)
+
+
 colnames(cor_plot_storm) <- c("Event Depth (in)",
                               "Peak Infiltration (in/hr)",
                               "Average Infiltration (in/hr)",
                               "Peak Flow Rate (cfs)",
                               "Days Since Last Pipe Jetting")
+# Remove infinite values
+cor_plot_storm <- cor_plot_storm[!is.infinite(cor_plot_storm$`Peak Flow Rate (cfs)`),]
 
 chart.Correlation(cor_plot_storm, histogram = TRUE)
 # png(filename = paste0(bplot_folder,"/correlation_plot.png"))
@@ -586,14 +643,26 @@ qqnorm(model10_residuals); qqline(model10_residuals)
 #scale inlet drainage area
 filtered_data$scl_inl_DA <- scale(filtered_data$Inlet.Drainage.Area..SF.)
 
-model11 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + (1|ow_uid), data = filtered_data, family = binomial())
+model11 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + Distrib..Size. + (1|ow_uid), data = filtered_data, family = binomial())
 
 model11_residuals <- resid(model11)
 anova(model11)
 hist(model11_residuals)
 shapiro.test(model11_residuals)
 qqnorm(model11_residuals); qqline(model11_residuals)
+summary(model11)
 
+
+#model12
+
+model12 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
+
+model12_residuals <- resid(model12)
+anova(model12)
+hist(model12_residuals)
+shapiro.test(model12_residuals)
+qqnorm(model12_residuals); qqline(model12_residuals)
+summary(model12)
 
 
 # overtopping percentage vs. max distribution pipe flow way

@@ -158,9 +158,12 @@ binded <- rbind(gi_asset_workorders,subsurf_workorders) #%>%
           # associate with facility id
           # dplyr::inner_join(assets, by = "facility_id")
 
-gi_wo_plot <- ggplot(data = binded, aes(x = component_id)) + geom_bar() + ggtitle('Count of Reviewed Work Orders') +
-  ylab("Count of Work Orders") + xlab("Inlet Componenet ID") +
+gi_wo_plot <- ggplot(data = binded, aes(x = DESCRIPTION)) + geom_bar() + ggtitle('Count of Reviewed Work Orders') +
+  ylab("Count of Work Orders") + xlab("WO Description") +
   theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
+
+gi_wo_plot
+ggsave(plot = gi_wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/WO_reviewed_plot.png"), width = 8, height = 4.5)
 
 #### 2.0 Calculate storm event, overtopping Summary Metrics ####
 

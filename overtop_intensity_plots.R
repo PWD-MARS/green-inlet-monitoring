@@ -483,7 +483,7 @@ for(i in 1:nrow(mon_locs)){
                                                            GI == mon_locs$ow_suffix[i])
     
   # calculate qpeak; rational method using peak intensity as i. Q= CiA. Use full system drainage area for distr. pipe
-  plot_data$qpeak <- plot_data$eventavgintensity_inhr*0.95*loc_sys_char$System.Drainage.Area..SF. * (1/12) * (1/3600) # last terms to cfs
+  plot_data$qpeak <- plot_data$eventpeakintensity_inhr*0.95*loc_sys_char$System.Drainage.Area..SF. * (1/12) * (1/3600) # last terms to cfs
   
   # Let's try TR-55 for comparisons sake
   
