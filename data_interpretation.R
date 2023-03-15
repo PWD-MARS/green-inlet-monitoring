@@ -508,7 +508,8 @@ cor_plot <- filtered_data_by_site %>% dplyr::select(Overtop_pct,
                                                     Max.Flow.w..Perforations..CFS.,
                                                     Distrib..Length..FT.,
                                                     X..Distrib..Bends,
-                                                    Distrib..Size.)
+                                                    Distrib..Size.,
+                                                    Distrib..Slope....)
 
 colnames(cor_plot) <- c("Overtop_pct",
                         "LR",
@@ -519,7 +520,8 @@ colnames(cor_plot) <- c("Overtop_pct",
                         "Qmax_cfs",
                         "Dist_pipe_length",
                         "Number_of_dist_pipe_bends",
-                        "Dist_pipe_size")
+                        "Dist_pipe_size",
+                        "Dist_pipe_slope")
 # make numeric
 cols <- c(1:ncol(cor_plot))
 cor_plot[,cols] = apply(cor_plot[,cols], 2, function(x) as.numeric(as.character(x)))
@@ -537,8 +539,8 @@ cor_plot_storm <- filtered_data %>% dplyr::select(log_event_depth,
 
 
 colnames(cor_plot_storm) <- c("Event Depth (in)",
-                              "Peak Infiltration (in/hr)",
-                              "Average Infiltration (in/hr)",
+                              "Peak Intensity (in/hr)",
+                              "Average Intensity (in/hr)",
                               "Peak Flow Rate (cfs)",
                               "Days Since Last Pipe Jetting")
 # Remove infinite values
@@ -709,7 +711,7 @@ qqnorm(model11_residuals); qqline(model11_residuals)
 summary(model11)
 
 
-#model12
+#model12 (selected model)
 
 model12 <- glmer(overtop ~  log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
 
