@@ -10,6 +10,10 @@ library(DBI)
 library(pwdgsi)
 library(lubridate)
 library(xlsx)
+library(RPostgreSQL)
+library(RPostgres)
+library(sf)
+library(mapsf)
 
 
 # not in operator
@@ -33,10 +37,14 @@ folderpath <-  "//pwdoows//OOWS/Watershed Sciences/GSI Monitoring/06 Special Pro
 piperuns <- read.csv(paste0(folderpath,"/","pipe_run.csv"))
 
 # System characteristics
-sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
+sys_char_file <- paste0(folderpath,"/SystemCharacteristics.xlsx")
 sys_char <- xlsx::read.xlsx(file = sys_char_file,
                             sheetName = "Characteristics")
 
+
+# As-built elevations
+asbuilt_file <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/relative_elevations.xlsx"
+asbuilt_elev <- xlsx::read.xlsx(file = asbuilt_file, sheetName = "elev")
 
 # Grab ow_uids from MARS
 ow_query <- paste0("WITH sys as (SELECT *, admin.fun_smp_to_system(smp_id) as system_id  FROM fieldwork.tbl_ow)
@@ -55,7 +63,11 @@ gi_ow <- ow[grepl("GI", ow$ow_suffix),]
 
 # add assets to gi_ow
 ow <- ow %>% left_join(dplyr::select(assets, facility_id, component_id, asset_type), by = "facility_id")
+ow <- ow %>% mutate(temp = paste0(system_id, ow_suffix))
 
+well_list <- c(paste0(sys_char$system_id,sys_char$OW), paste0(sys_char$system_id,sys_char$GI))
+
+ow <- ow %>% filter(temp %in% well_list) %>% dplyr::select(-temp)
 
 
 # Find a beginning date and cut-off date for monitoring/work order
@@ -90,9 +102,24 @@ subsurf_maint_query <- paste0("SELECT * FROM Azteca.WORKORDER wo LEFT JOIN Aztec
 subsurf_workorders <- dbGetQuery(cw_con, subsurf_maint_query) 
 # Remove duplicates
 subsurf_workorders <- subsurf_workorders[!duplicated(colnames(subsurf_workorders))]
-# Filter by date
-subsurf_workorders <- subsurf_workorders %>% dplyr::filter(ACTUALSTARTDATE >= begin_date) %>%
-                      dplyr::filter(ACTUALSTARTDATE <= end_date)
+
+
+#### 1.2 Grab filter bag data ####
+
+# Thank you for the code, Farshad
+#get the smps
+dsn_infra_pub <- paste0("MSSQL:server=PWDGISSQL;",
+                        "database=INFRASTRUCTURE_PUBLIC;",
+                        "UID=gisread;",
+                        "PWD=gisread;")
+
+# Inlet data
+gi_inlets <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIINLET", quiet = TRUE)) 
+gi_obs_wells <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWIOBSERVATIONWELL", quiet = TRUE))
+whatever <- suppressWarnings(st_read(dsn_infra_pub, "gisad.GSWITRENCH", quiet = TRUE)) 
+
+gi_inlets %<>% dplyr::filter(FACILITYID %in% assets$facility_id)
+
 # check if locations match pipe fittings
 feature_ids <- c(piperuns$Pipe.Run.Asset.ID, piperuns$Attached.Asset)
 subsurf_workorders <- subsurf_workorders %>% dplyr::filter(ENTITYUID %in% feature_ids | FEATUREUID %in% feature_ids)
@@ -128,6 +155,8 @@ wo_in_prot_plot <- ggplot(data = in_prot_maint, aes(x = component_id)) + geom_ba
   theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
 
 ggsave(plot = wo_in_prot_plot, file = paste0(folderpath,"/Preliminary Visualizations/Inlet_Protection_WO_frequency.png"), width = 8, height = 4.5)
+write.csv(in_prot_maint, 
+          file = paste0(folderpath, "/inlet_prot_wos.csv"))
 
 # List of work order types of interests (created by Johanna on 1/11/2023)
 descriptions <- c("SUBSURFACE INSPECTION",
@@ -137,7 +166,8 @@ descriptions <- c("SUBSURFACE INSPECTION",
                   "SUB-SURFACE INLET PROTECTION MAINTENANCE",
                   "IC - INLET EXAM",
                   "INLET MAINTENANCE",
-                  "INLET EXAM")
+                  "INLET EXAM",
+                  "SURFACE INLET PROTECTION MAINTENANCE")
 
 gi_workorders <- gi_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
 gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(DESCRIPTION %in% descriptions)
@@ -160,7 +190,7 @@ binded <- rbind(gi_asset_workorders,subsurf_workorders) #%>%
 
 gi_wo_plot <- ggplot(data = binded, aes(x = DESCRIPTION)) + geom_bar() + ggtitle('Count of Reviewed Work Orders') +
   ylab("Count of Work Orders") + xlab("WO Description") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
+  theme(axis.text.x = element_text(angle = 50, vjust = 1.0, hjust=1))
 
 gi_wo_plot
 ggsave(plot = gi_wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/WO_reviewed_plot.png"), width = 8, height = 4.5)
@@ -230,7 +260,15 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
                                                  paste(gi_ow$ow_uid, collapse= ", "),") AND
                                                  end_dtime_est IS NULL"))
 
-
+  # Grab measurements for all ows
+  well_meas <- dbGetQuery(mars_con, paste0("SELECT * FROM fieldwork.viw_ow_plus_measurements WHERE ow_uid in (",
+                                           paste(ow$ow_uid, collapse= ", "),")")) %>%
+               dplyr::filter(ow_suffix == "OW1" | ow_suffix == "GI1" | ow_suffix == "GI2")
+  
+  #### To be removed once proper well measurement for 171-2 is in place ####
+  well_meas$cap_to_hook_ft[well_meas$ow_uid == 1414] <- 0
+  # inlet grate elev. less pipe invert elev. + observed water depth in 
+  well_meas$hook_to_sensor_ft[well_meas$ow_uid == 1414] <- (119.11-113.75) 
   
   #Create error log
   error_log <- data.frame(ow_event_row = NA, error_message = NA, stringsAsFactors=FALSE)
@@ -312,10 +350,21 @@ for(i in 1:nrow(new_gi_events)){
                                               sump_correct = TRUE,
                                               debug = TRUE,
                                               level = TRUE)
+    ow_data <- marsFetchMonitoringData(con = mars_con, 
+                                       target_id = temp_df$smp_id, 
+                                       ow_suffix = "OW1", 
+                                       source = "radar",
+                                       start_date = as.character(rain_start_date), 
+                                       end_date = as.character(rain_end_date), 
+                                       sump_correct = TRUE,
+                                       debug = TRUE,
+                                       level = TRUE)
+    
     
     rain_event_data <- monitoringdata[["Rain Event Data"]]
     rain_data <- monitoringdata[["Rainfall Data"]]
     level_data <- monitoringdata[["Level Data"]]
+    ow_level_data <- ow_data[["Level Data"]]
     
     rain_plot_data <- monitoringdata[["Rainfall Data"]] %>%
       dplyr::filter(radar_event_uid == temp_df$radar_event_uid)
@@ -347,6 +396,29 @@ for(i in 1:nrow(new_gi_events)){
     overtop <- marsOvertoppingCheck_bool(selected_event$level_ft, snapshot$storage_depth_ft)
     
     
+    #Head Differential
+    peak_time <- dplyr::filter(level_data, level_ft == max(level_ft, na.rm = TRUE)) %>% dplyr::select(dtime_est) %>% pull
+    peak_gi_head <- dplyr::filter(level_data, level_ft == max(level_ft, na.rm = TRUE)) %>% dplyr::select(level_ft) %>% pull
+    peak_ow_head <- dplyr::filter(ow_level_data, dtime_est == peak_time) %>% dplyr::select(level_ft) %>% pull
+    head_dif_x <- peak_gi_head - peak_ow_head
+    
+    #Relative head differential
+    ow_sensor_height <- asbuilt_elev$as_built_elev[asbuilt_elev$system_id == smp_2_sys(temp_df$smp_id) & asbuilt_elev$ow_suffix == "OW1"] -
+                 well_meas$cap_to_hook_ft[well_meas$smp_id == temp_df$smp_id & well_meas$ow_suffix == "OW1"] -
+                 well_meas$hook_to_sensor_ft[well_meas$smp_id == temp_df$smp_id & well_meas$ow_suffix == "OW1"]
+    
+    # not 
+    gi_sensor_height <- asbuilt_elev$as_built_elev[asbuilt_elev$system_id == smp_2_sys(temp_df$smp_id) & (asbuilt_elev$ow_suffix == "GI1"|asbuilt_elev$ow_suffix == "GI2")] -
+                 well_meas$cap_to_hook_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")] -
+                 well_meas$hook_to_sensor_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")]
+    rel_head_dif_x <- (peak_gi_head + gi_sensor_height) - (peak_ow_head + ow_sensor_height)
+    
+    if(length(head_dif_x) > 1)
+    {
+      head_dif_x <- mean(head_dif_x)
+      rel_head_dif_x <- mean(rel_head_dif_x)
+    }
+    
     #write metrics as CSV
     
     # populating ddown_error data
@@ -367,7 +439,9 @@ for(i in 1:nrow(new_gi_events)){
       mutate(draindown_hr=draindown_hr,
              draindown_error=ddown_error,
              percentstorageused_relative=percentstorageused_relative,
-             overtop= overtop)
+             overtop= overtop,
+             head_dif = head_dif_x,
+             rel_head_dif = rel_head_dif_x)
 
     write.table(metrics_output, file = paste0(folderpath, "/", current_date, "/gi_metrics.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
     
@@ -388,7 +462,10 @@ for(i in 1:nrow(new_gi_events)){
   
 gi_metrics <-  read.csv(paste0(folderpath, "/", current_date, "/gi_metrics.csv"))
 
-# latest ow metrics
+
+#### Compare to latest ow metrics ####
+
+# This folder needs to be updated
 
 ow_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/48 Short-Circuiting GSI Data Analysis/Calculation Phase/Metrics Calculations/"
 
