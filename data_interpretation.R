@@ -79,12 +79,12 @@ raw_data$system_id <- sapply(raw_data$smp_id,smp_2_sys)
 
 # Removing sections of time based on observations from cityworks and SRTS
 
-#first, make all dates the correct format.
-# raw_data$eventdatastart_edt %<>% ymd_hms() 
-# raw_data$eventdataend_edt   %<>% ymd_hms()
+# first, make all dates the correct format.
+raw_data$eventdatastart_edt %<>% ymd_hms()
+raw_data$eventdataend_edt   %<>% ymd_hms()
 
-raw_data$eventdatastart_edt %<>% mdy_hm()
-raw_data$eventdataend_edt   %<>% mdy_hm()
+# raw_data$eventdatastart_edt %<>% mdy_hm()
+# raw_data$eventdataend_edt   %<>% mdy_hm()
 
 # 1-1 Taken offline
 last_date_1_1 <- event_dates %>% dplyr::filter(system_id == '1-1') %>%
@@ -121,6 +121,16 @@ filtered_data <- distinct(filtered_data)
 # check new total storms
 filtered_data %>% dplyr::select(ow_uid,radar_event_uid) %>% distinct() %>% dplyr::group_by(ow_uid) %>% 
               summarize(storm_count = n()) %>% left_join(inlet_type) %>% dplyr::select(ow_uid,smp_id,storm_count)
+
+
+# Normalize head differential
+filtered_data <- filtered_data %>%
+                 group_by(smp_id) %>%
+                 mutate(max_head = max(rel_head_dif)) %>%
+                 ungroup() %>%
+                 mutate(norm_head = rel_head_dif/max_head) %>%
+                 select(-max_head)
+  
 
 #### 2.0 Data Visualization ####
 
@@ -1453,6 +1463,386 @@ hdif_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, 
 
 hdif_vs_age_des
 
+#### 2.4.5 Normalized head dif, design storms only ####
+
+# By pipe slope
+
+# by pipe slope labels
+label_text <- design_data %>%
+  dplyr::group_by(Distrib..Slope....) %>%
+  summarize(slope_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = c("Distrib..Slope....")) %>%
+  dplyr::group_by(overtop, Distrib..Slope....) %>%
+  summarize(label = paste0(round(100*n()/slope_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(overtop,Distrib..Slope....,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+ot_hdif_norm_slope_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = as.factor(Distrib..Slope....), fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Distribution Pipe Slope (%)") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Overtopping by Head Differential and Distribution Pipe Slope") +
+  scale_fill_manual(values = c("grey41","grey82")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_hdif_norm_slope_bplot_des
+
+## By system
+
+#by system labels
+label_text <- design_data %>%
+  dplyr::group_by(system_id) %>%
+  summarize(sys_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = c("system_id")) %>%
+  dplyr::group_by(overtop, system_id) %>%
+  summarize(label = paste0(round(100*n()/sys_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(overtop,system_id,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+ot_hdif_norm_system_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = system_id, fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("System ID") + ylab("NOrmalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Overtopping by Head Differential per System") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_hdif_norm_system_bplot_des
+
+
+## By Season
+
+#by season,system labels
+label_text <- design_data %>%
+  dplyr::group_by(system_id) %>%
+  summarize(sys_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = c("system_id")) %>%
+  dplyr::group_by(season, system_id) %>%
+  summarize(label = paste0(round(100*n()/sys_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(season,system_id,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+hdif_norm_szn_sys_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = system_id, fill = season)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("System ID") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by System and Season") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Darjeeling2) +
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_szn_sys_bplot_des
+
+#by season labels
+label_text <- design_data %>%
+  dplyr::group_by(season) %>%
+  summarize(season_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = "season") %>%
+  dplyr::group_by(season, overtop) %>%
+  summarize(label = paste0(round(100*n()/season_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(season,overtop,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+hdif_norm_szn_ot_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = overtop, fill = season)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Overtopping") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by Season") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  # scale_fill_manual(values = c("#ECCBAE", "#046C9A", "#D69C4E", "#ABDDDE")) + 
+  scale_fill_manual(values = wes_palettes$Darjeeling2) +
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_szn_ot_bplot_des
+
+## By inlet type
+design_data$inlet_style <- NA
+design_data[design_data$Trap == FALSE,]$inlet_style <- "New (Without Trap)"
+design_data[design_data$Trap == TRUE,]$inlet_style <- "Old (with Trap)"
+
+label_text <- design_data %>%
+  dplyr::group_by(inlet_style) %>%
+  summarize(style_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = "inlet_style") %>%
+  dplyr::group_by(inlet_style, overtop) %>%
+  summarize(label = paste0(round(100*n()/style_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(inlet_style,overtop,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+hdif_norm_inlet_ot_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = inlet_style, fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Inlet Type") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by Inlet Type") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_inlet_ot_bplot_des
+
+
+
+## Inlet type and Sump Depth?
+#By inlet type
+design_data$inlet_style <- NA
+design_data[design_data$Trap == FALSE,]$inlet_style <- "New (Without Trap)"
+design_data[design_data$Trap == TRUE,]$inlet_style <- "Old (with Trap)"
+
+label_text <- design_data %>%
+  dplyr::group_by(inlet_style) %>%
+  summarize(style_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = "inlet_style") %>%
+  dplyr::group_by(inlet_style, overtop) %>%
+  summarize(label = paste0(round(100*n()/style_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(inlet_style,overtop,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+hdif_norm_inlet_ot_sz_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = inlet_style, fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(aes(size = Sump.Depth..ft.),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
+  xlab("Inlet Type") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by Inlet Type") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_inlet_ot_sz_bplot_des
+
+## Sump depth and overtopping
+
+
+
+design_data$Sump.Depth..ft. <- round(design_data$Sump.Depth..ft.,2)
+
+hdif_norm_sump_ot_des <- ggplot(data = design_data, aes(y = norm_head, x = as.factor(Sump.Depth..ft.), fill = overtop)) + 
+  geom_boxplot(size = 1.1, outlier.shape = NA)+
+  geom_point(aes(size = eventdepth_in), shape = 21, alpha = 0.7) +
+  xlab("Sump Depth (ft)") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by Sump Depth") +  
+  labs(fill = "Overtopping", size = "Event Depth (in)") +
+  scale_fill_manual(values = wes_palettes$Moonrise2) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_sump_ot_des
+
+
+## Filter Bag Type
+# pretreat <- inlet_type %>% dplyr::select(ow_uid,pretreatment)
+
+# design_data <- design_data %>% left_join(pretreat, by = "ow_uid")
+
+label_text <- design_data %>%
+  dplyr::group_by(Filter.Bags.Used) %>%
+  summarize(style_count = n()) %>%
+  ungroup() %>%
+  right_join(design_data, by = "Filter.Bags.Used") %>%
+  dplyr::group_by(Filter.Bags.Used, overtop) %>%
+  summarize(label = paste0(round(100*n()/style_count,0),"%"),
+            norm_head = max(norm_head)) %>%
+  dplyr::select(Filter.Bags.Used,overtop,label, norm_head) %>%
+  dplyr::distinct()
+
+label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+hdif_norm_fbag_ot_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = Filter.Bags.Used, fill = overtop)) +
+  geom_boxplot(size = 1.1,outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
+  xlab("Filter Bag Type") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by Filter Bag Type") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+  
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_fbag_ot_bplot_des
+
+## System Age plots
+
+hdif_norm_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, y = norm_head, col = Total...Tree.Pits)) +
+  xlab("System Age (years)") + ylab("Normalized Head Diff. at Peak Water Level in Green Inlet") +
+  ggtitle("Head Differential by System Age") +  
+  labs(color = "Number of Trees") +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_norm_vs_age_des
+
+
 #### 2.5 Save boxplots ####
 bplot_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/boxplots"
 bplot_design_folder <- paste0(bplot_folder,"/Design Storms")
@@ -1495,6 +1885,18 @@ ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_season_and_sys_design
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_season_design_storms.png"), plot = hdif_szn_ot_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_Inlet_type_design_storms.png"), plot = hdif_inlet_ot_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_Age_design_storms.png"), plot = hdif_vs_age_des, width = 10, height = 8)
+
+
+# normalized head differential, design storm only
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_sump_depth_design_storms.png"), plot = hdif_norm_sump_ot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_filter_bag_design_storms.png"), plot = hdif_norm_fbag_ot_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_slope_design_storms.png"), plot = ot_hdif_norm_slope_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_system_design_storms.png"), plot = ot_hdif_norm_system_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_season_and_sys_design_storms.png"), plot = hdif_norm_szn_sys_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_season_design_storms.png"), plot = hdif_norm_szn_ot_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Inlet_type_design_storms.png"), plot = hdif_norm_inlet_ot_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Age_design_storms.png"), plot = hdif_norm_vs_age_des, width = 10, height = 8)
+
 }
 
 #### 2.6 Drainage Area ####
@@ -1687,7 +2089,8 @@ write.table(cor_table, file = "clipboard")
 
 
 # Storm event correlation matrix
-cor_plot_storm <- filtered_data %>% dplyr::select(rel_head_dif,
+cor_plot_storm <- filtered_data %>% dplyr::select(
+                                                  rel_head_dif,
                                                   log_event_depth,
                                                   log_peak_int,
                                                   log_avg_int,

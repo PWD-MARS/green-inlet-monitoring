@@ -195,7 +195,7 @@ gi_wo_plot <- ggplot(data = binded, aes(x = DESCRIPTION)) + geom_bar() + ggtitle
 gi_wo_plot
 ggsave(plot = gi_wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/WO_reviewed_plot.png"), width = 8, height = 4.5)
 
-#### 2.0 Calculate storm event, overtopping Summary Metrics ####
+  #### 2.0 Calculate storm event, overtopping Summary Metrics ####
 
 # Complete log of storms for each ow
 
@@ -265,10 +265,7 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
                                            paste(ow$ow_uid, collapse= ", "),")")) %>%
                dplyr::filter(ow_suffix == "OW1" | ow_suffix == "GI1" | ow_suffix == "GI2")
   
-  #### To be removed once proper well measurement for 171-2 is in place ####
-  well_meas$cap_to_hook_ft[well_meas$ow_uid == 1414] <- 0
-  # inlet grate elev. less pipe invert elev. + observed water depth in 
-  well_meas$hook_to_sensor_ft[well_meas$ow_uid == 1414] <- (119.11-113.75) 
+
   
   #Create error log
   error_log <- data.frame(ow_event_row = NA, error_message = NA, stringsAsFactors=FALSE)
@@ -330,7 +327,7 @@ for(i in 1:nrow(new_gi_events)){
       pull
     
     structure_name <- paste(temp_df$smp_id, temp_df$ow_suffix)
-    storage_depth <- overtopping_elev$well_depth_ft[overtopping_elev$ow_uid == temp_df$ow_uid]
+    storage_depth <- overtopping_elev$deployment_depth_ft[overtopping_elev$ow_uid == temp_df$ow_uid]
     
     snapshot_date <- "today"
     snapshot <- marsFetchSMPSnapshot(con = mars_con, 
@@ -338,7 +335,7 @@ for(i in 1:nrow(new_gi_events)){
                                      ow_suffix = temp_df$ow_suffix, 
                                      request_date = snapshot_date)
     
-    storage_depth <- snapshot$storage_depth_ft
+    # storage_depth <- snapshot$storage_depth_ft
     orifice_height_ft <- snapshot$assumption_orificeheight_ft
     
     monitoringdata <- marsFetchMonitoringData(con = mars_con, 
@@ -393,7 +390,7 @@ for(i in 1:nrow(new_gi_events)){
     percentstorageused_relative <- marsPeakStorage_percent(waterlevel_ft = selected_event$level_ft - dplyr::first(selected_event$level_ft), storage_depth_ft = snapshot$storage_depth_ft) %>% round(4) 
     
     #overtopping
-    overtop <- marsOvertoppingCheck_bool(selected_event$level_ft, snapshot$storage_depth_ft)
+    overtop <- marsOvertoppingCheck_bool(selected_event$level_ft, storage_depth)
     
     
     #Head Differential
@@ -403,11 +400,12 @@ for(i in 1:nrow(new_gi_events)){
     head_dif_x <- peak_gi_head - peak_ow_head
     
     #Relative head differential
+    # sensor heights
     ow_sensor_height <- asbuilt_elev$as_built_elev[asbuilt_elev$system_id == smp_2_sys(temp_df$smp_id) & asbuilt_elev$ow_suffix == "OW1"] -
                  well_meas$cap_to_hook_ft[well_meas$smp_id == temp_df$smp_id & well_meas$ow_suffix == "OW1"] -
                  well_meas$hook_to_sensor_ft[well_meas$smp_id == temp_df$smp_id & well_meas$ow_suffix == "OW1"]
     
-    # not 
+    
     gi_sensor_height <- asbuilt_elev$as_built_elev[asbuilt_elev$system_id == smp_2_sys(temp_df$smp_id) & (asbuilt_elev$ow_suffix == "GI1"|asbuilt_elev$ow_suffix == "GI2")] -
                  well_meas$cap_to_hook_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")] -
                  well_meas$hook_to_sensor_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")]
@@ -441,7 +439,11 @@ for(i in 1:nrow(new_gi_events)){
              percentstorageused_relative=percentstorageused_relative,
              overtop= overtop,
              head_dif = head_dif_x,
-             rel_head_dif = rel_head_dif_x)
+             rel_head_dif = rel_head_dif_x,
+             peak_gi_head = peak_gi_head,
+             ow_head = peak_ow_head,
+             ow_sensor_elev = ow_sensor_height,
+             gi_sensor_elev = gi_sensor_height)
 
     write.table(metrics_output, file = paste0(folderpath, "/", current_date, "/gi_metrics.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
     
@@ -465,7 +467,7 @@ gi_metrics <-  read.csv(paste0(folderpath, "/", current_date, "/gi_metrics.csv")
 
 #### Compare to latest ow metrics ####
 
-# This folder needs to be updated
+# This folder needs to be updated with the latest metrics
 
 ow_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/48 Short-Circuiting GSI Data Analysis/Calculation Phase/Metrics Calculations/"
 

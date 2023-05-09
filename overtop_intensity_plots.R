@@ -12,6 +12,7 @@ library(lubridate)
 library(ggplot2)
 library(cowplot)
 library(xlsx)
+library(wesanderson)
 
 #### 1.0 Set up ####
 # Read data, set up folders
@@ -92,7 +93,7 @@ smp_2_sys <- function(smp_id){
 overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, event_descriptions = NULL){
   
   #clean dates for x-axis
-  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::ymd_hms()
   event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
   min_date <- min(lubridate::date(data$eventdatastart_edt))
   max_date <- max(lubridate::date(data$eventdatastart_edt))
@@ -101,8 +102,8 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  data$overtop_col[data$overtop == FALSE] <- wes_palettes$Royal1[1]
+  data$overtop_col[data$overtop == TRUE] <- wes_palettes$Royal1[2]
   
   #subset of data exceeding design storm
   data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
@@ -116,7 +117,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
                        y = eventpeakintensity_inhr)) +
     geom_point(aes(color = factor(overtop),
                    size = factor(overtop))) +
-    geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
+    geom_hline(yintercept = 2.5, color = wes_palettes$Royal1[4], size = 1.5) +
     scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
     scale_x_datetime(date_minor_breaks = "2 months") +
     ylab("Event Peak Intensity (in/hr)") + xlab("Event Date/Time") +
@@ -129,7 +130,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
     geom_point(aes(x = eventdatastart_edt,
                    y = eventpeakintensity_inhr, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
     scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
-    scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     #from pwdgsi plots
     ggplot2::theme(
@@ -137,7 +138,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
       axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
       axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
       axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-      panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+      panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
       panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
       panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
@@ -146,7 +147,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
   
   if(length(event_dates) > 0 & length(event_descriptions) > 0){
     for(i in 1:length(event_dates)){
-      plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+      plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = wes_palettes$Royal1[4], size = 1.1, linetype = "dashed") +
                          geom_text(label = event_descriptions[i], angle = 90,
                                    y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
                                    x = as.numeric(event_dates[i] + days(8)))
@@ -164,7 +165,7 @@ overtopping_intensity_plot <- function(data, design_storm, event_dates = NULL, e
 overtopping_hdif_plot <- function(data, design_storm, event_dates = NULL, event_descriptions = NULL){
   
   #clean dates for x-axis
-  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::ymd_hms()
   event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
   min_date <- min(lubridate::date(data$eventdatastart_edt))
   max_date <- max(lubridate::date(data$eventdatastart_edt))
@@ -173,8 +174,8 @@ overtopping_hdif_plot <- function(data, design_storm, event_dates = NULL, event_
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  data$overtop_col[data$overtop == FALSE] <- wes_palettes$Royal1[1]
+  data$overtop_col[data$overtop == TRUE] <- wes_palettes$Royal1[2]
   
   #subset of data exceeding design storm
   data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
@@ -197,7 +198,7 @@ overtopping_hdif_plot <- function(data, design_storm, event_dates = NULL, event_
     geom_point(aes(x = eventdatastart_edt,
                    y = rel_head_dif, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
     scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
-    scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     #from pwdgsi plots
     ggplot2::theme(
@@ -205,7 +206,7 @@ overtopping_hdif_plot <- function(data, design_storm, event_dates = NULL, event_
       axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
       axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
       axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-      panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+      panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
       panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
       panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
@@ -214,7 +215,7 @@ overtopping_hdif_plot <- function(data, design_storm, event_dates = NULL, event_
   
   if(length(event_dates) > 0 & length(event_descriptions) > 0){
     for(i in 1:length(event_dates)){
-      plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+      plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = wes_palettes$Royal1[4], size = 1.1, linetype = "dashed") +
         geom_text(label = event_descriptions[i], angle = 90,
                   y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
                   x = as.numeric(event_dates[i] + days(8)))
@@ -242,8 +243,8 @@ pipejet_overtop_plot <- function(data, design_storm){
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  data$overtop_col[data$overtop == FALSE] <- wes_palettes$Royal1[1]
+  data$overtop_col[data$overtop == TRUE] <- wes_palettes$Royal1[2]
   
   #subset of data exceeding design stor
   data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
@@ -257,7 +258,7 @@ pipejet_overtop_plot <- function(data, design_storm){
                        y = eventpeakintensity_inhr)) +
     geom_point(aes(color = factor(overtop),
                    size = factor(overtop))) +
-    geom_hline(yintercept = 2.5, color = "red", size = 1.5) +
+    geom_hline(yintercept = 2.5, color = wes_palettes$Royal1[4], size = 1.5) +
     scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
     ylab("Event Peak Intensity (in/hr)") + xlab("Days Since Last Pipe Jetting") +
     geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
@@ -269,7 +270,7 @@ pipejet_overtop_plot <- function(data, design_storm){
     geom_point(aes(x = last_jet,
                    y = eventpeakintensity_inhr, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
     scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
-    scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     #from pwdgsi plots
     ggplot2::theme(
@@ -277,7 +278,7 @@ pipejet_overtop_plot <- function(data, design_storm){
       axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
       axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
       axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-      panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+      panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
       panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
       panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
@@ -292,7 +293,7 @@ pipejet_overtop_plot <- function(data, design_storm){
 
 
 pipejet_hdif_plot <- function(data, design_storm){
-  
+  # browser()
   #clean dates for x-axis
   data <- data %>% dplyr::filter(!is.na(last_jet))
   
@@ -305,8 +306,8 @@ pipejet_hdif_plot <- function(data, design_storm){
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  data$overtop_col[data$overtop == FALSE] <- wes_palettes$Royal1[1]
+  data$overtop_col[data$overtop == TRUE] <- wes_palettes$Royal1[2]
   
   #subset of data exceeding design storm
   data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
@@ -328,7 +329,7 @@ pipejet_hdif_plot <- function(data, design_storm){
     geom_point(aes(x = last_jet,
                    y = rel_head_dif, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
     scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
-    scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+    scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
     #from pwdgsi plots
     ggplot2::theme(
@@ -336,7 +337,7 @@ pipejet_hdif_plot <- function(data, design_storm){
       axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
       axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
       axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-      panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+      panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
       panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
       panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
@@ -353,7 +354,7 @@ pipejet_hdif_plot <- function(data, design_storm){
 overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates = NULL, event_descriptions = NULL){
   
   #clean dates for x-axis
-  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::mdy_hm()
+  data$eventdatastart_edt <- data$eventdatastart_edt %>% lubridate::ymd_hms()
   event_dates <- event_dates %>% lubridate::mdy() %>% lubridate::as_datetime()
   min_date <- min(lubridate::date(data$eventdatastart_edt))
   max_date <- max(lubridate::date(data$eventdatastart_edt))
@@ -362,8 +363,8 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
-  data$overtop_col[data$overtop == FALSE] <- "steelblue3"
-  data$overtop_col[data$overtop == TRUE] <- "firebrick3"
+  data$overtop_col[data$overtop == FALSE] <- wes_palettes$Royal1[1]
+  data$overtop_col[data$overtop == TRUE] <- wes_palettes$Royal1[2]
   
   #subset of data exceeding design stor
   data_ovr_design <- data %>% dplyr::filter(eventdepth_in > design_storm)
@@ -385,7 +386,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
     
     if(length(event_dates) > 0 & length(event_descriptions) > 0){
       for(i in 1:length(event_dates)){
-        plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = "orange1", size = 1.1, linetype = "dashed") +
+        plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = wes_palettes$Royal1[4], size = 1.1, linetype = "dashed") +
           geom_text(label = event_descriptions[i], angle = 90,
                     y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
                     x = as.numeric(event_dates[i] + days(8)))
@@ -393,7 +394,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
       
     }
     
-  plot_x <- plot_x +  geom_hline(yintercept = qmax, color = "red", size = 1.5) +
+  plot_x <- plot_x +  geom_hline(yintercept = qmax, color = wes_palettes$Royal1[4], size = 1.5) +
                       scale_y_continuous(limits = c(0,ymax_obs), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
                       scale_x_datetime(date_minor_breaks = "2 months") +
                       ylab("Event Qpeak (cfs)") + xlab("Event Date/Time") +
@@ -406,7 +407,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
                       geom_point(aes(x = eventdatastart_edt,
                                      y = qpeak, size = factor(overtop),  color = factor(overtop), shape = factor(ExceedDesignStorm))) +
                       scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
-                      scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
+                      scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
                       scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
                       #from pwdgsi plots
                       ggplot2::theme(
@@ -414,7 +415,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
                         axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
                         axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
                         axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-                        panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+                        panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
                         panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
                         panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
                         panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
@@ -433,7 +434,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
 
 #### 3.1 Plots with storms over Design depth ####
   
-for(i in 4:nrow(mon_locs)){
+for(i in 1:nrow(mon_locs)){
 
 # Subset plot data
 plot_data <- raw_data %>%
@@ -474,6 +475,10 @@ ggsave(plot = location_plot,
        filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],".png"),
        width = 10, height = 8)
 
+ggsave(plot = hdif_plot,
+       filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_hdif.png"),
+       width = 10, height = 8)
+
 }
 
 #### 3.2 Plots excluding storms over Design depth ####
@@ -487,7 +492,7 @@ for(i in 1:nrow(mon_locs)){
     dplyr::filter(smp_id == mon_locs$smp_id[i]) %>%
     dplyr::filter(ow_suffix == mon_locs$ow_suffix[i]) %>%
     dplyr::select(ow_uid, radar_event_uid, ow_suffix, eventdatastart_edt,
-                  smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop)
+                  smp_id, eventavgintensity_inhr, eventpeakintensity_inhr, eventdepth_in, overtop, rel_head_dif)
   
   # Get System ID
   sys_id <- smp_2_sys(mon_locs$smp_id[i])
@@ -513,12 +518,21 @@ for(i in 1:nrow(mon_locs)){
                                               event_descriptions = event_data$graph_text)    
   
   
+  # hdif plot
+  hdif_plot <- overtopping_hdif_plot(data =plot_data, 
+                                     design_storm = design_storm,
+                                     event_dates = event_data$date_complete,
+                                     event_descriptions = event_data$graph_text)
+  
   # Save Plot
   ggsave(plot = location_plot,
          filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_design_storm_only.png"),
          width = 10, height = 8)
-  
-}
+  ggsave(plot = hdif_plot,
+         filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_design_storm_only_hdif.png"),
+         width = 10, height = 8)  
+
+  }
 
 
 #### 3.3 Days since pipe jetting plots ####
@@ -556,13 +570,13 @@ for(i in 1:nrow(mon_locs)){
   for(j in 1:nrow(plot_data)){
     
     #get the current date in question
-    date_x <- plot_data$eventdatastart_edt[j] %>% mdy_hm()
+    date_x <- plot_data$eventdatastart_edt[j] %>% ymd_hms()
     
     # list of dates where pipe jetting occurred, coerced into datetime format
     jet_days <- pipe_jetting_days$date_complete %>% mdy() %>% as_datetime()
     
     # Find the number of days between the current date and each pipe jetting event
-    time_difs <- date_x - jet_days
+    time_difs <- difftime(date_x, jet_days, units = "days")
     
     # Remove pipe jetting events happening in the future; limit it to a list of past pipe jetting events
     time_difs <- time_difs[time_difs > 0]
