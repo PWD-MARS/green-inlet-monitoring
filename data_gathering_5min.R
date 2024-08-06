@@ -38,7 +38,7 @@ mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
 
 # Systems within the study
 systems <- c('171-1', '171-2', '1-3', '1-1', '1006-1', '179-5','488-5', '439-1')
-current_date <- today()
+
 
 
 # Manual list of pipe runs immediately connected to green inlets
@@ -108,7 +108,7 @@ subsurf_maint_query <- paste0("SELECT * FROM Azteca.WORKORDER wo LEFT JOIN Aztec
     wo.WORKORDERID = woe.WORKORDERID WHERE DESCRIPTION = 'SUB-SURFACE MAINTENANCE' OR DESCRIPTION = 'SUBSURFACE INSPECTION'" )
 
 
-subsurf_workorders <- dbGetQuery(cw_con, subsurf_maint_query) 
+subsurf_workorders <- dbGetQuery(cw_con, subsurf_maint_query)
 # Remove duplicates
 subsurf_workorders <- subsurf_workorders[!duplicated(colnames(subsurf_workorders))]
 
@@ -166,10 +166,10 @@ wo_in_prot_plot <- ggplot(data = in_prot_maint, aes(x = component_id)) + geom_ba
   theme(axis.text.x = element_text(angle = 45, vjust = 1.0, hjust=1))
 
 ggsave(plot = wo_in_prot_plot, file = paste0(folderpath,"/Preliminary Visualizations/Inlet_Protection_WO_frequency.png"), width = 8, height = 4.5)
-write.csv(in_prot_maint, 
+write.csv(in_prot_maint,
           file = paste0(folderpath, "/inlet_prot_wos.csv"))
 
-##### 2.2 Work order types of interests ##### 
+##### 2.2 Work order types of interests #####
 # (created by Johanna on 1/11/2023)
 descriptions <- c("SUBSURFACE INSPECTION",
                   "SUB-SURFACE MAINTENANCE",
@@ -188,13 +188,13 @@ gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(DESCRIPTION %in% de
 ##### 2.3 Write workorder results and plots #####
 
 # Write .csv of both sets of work orders
-write.csv(gi_asset_workorders, 
+write.csv(gi_asset_workorders,
           file = paste0(folderpath, "/gi_workorders.csv"))
 write.csv(subsurf_workorders,
           file = paste0(folderpath, "/subsurface_workorders.csv"))
 
 # bind the two together for plotting
-binded <- rbind(gi_asset_workorders,subsurf_workorders) #%>% 
+binded <- rbind(gi_asset_workorders,subsurf_workorders) #%>%
           # turn feature id format into facility id format
           # dplyr::mutate(facility_id = toupper(as.character(gsub("\\{|\\}","",FEATUREUID)))) %>%
           # associate with facility id
@@ -229,7 +229,7 @@ for(i in 1:length(folders)){
   }
 }
 
-latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
+latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics_5min.csv"), row.names = NULL)
 
 
 # grab list of storm events
@@ -310,34 +310,36 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"))
   new_gi_events <- gi_events %>% dplyr::filter(ow_event %!in% latest_data$ow_event)
   
   ## Create directory if needed
-  if(dir.exists(paste0(folderpath, "/", current_date)) == FALSE){
-     dir.create(paste0(folderpath, "/", current_date)) 
+  if(dir.exists(paste0(folderpath, "/", Sys.Date())) == FALSE){
+     dir.create(paste0(folderpath, "/", Sys.Date())) 
   }
    
   
 # Copy latest data over if necessary
-  if(file.exists(paste0(folderpath, "/", current_date,"/gi_metrics.csv")) == FALSE){
-  file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics.csv"),
-            to = paste0(folderpath, "/", current_date))
+  if(file.exists(paste0(folderpath, "/", Sys.Date(),"/gi_metrics_5min.csv")) == FALSE){
+  file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics_5min.csv"),
+            to = paste0(folderpath, "/", Sys.Date()))
   }
   
+
 for(i in 1:nrow(new_gi_events)){
   
   tryCatch({
     
+    ##### 3.2 Query rain, ow, and gi data from the database for select event ####
     temp_df <- new_gi_events[i,]
     
     rain_start_date <- rain_radar_event %>%
       filter(radar_event_uid == temp_df[1, "radar_event_uid"]) %>%
       select(eventdatastart_edt) %>%
       format("%Y-%m-%d") %>%
-      pull
+      pull %>% ymd
     
     rain_end_date <- rain_radar_event %>%
       filter(radar_event_uid == temp_df[1, "radar_event_uid"]) %>%
       select(eventdataend_edt) %>%
       format("%Y-%m-%d") %>%
-      pull
+      pull %>% ymd
     
     event <- temp_df %>%
       select(radar_event_uid) %>%
@@ -353,7 +355,7 @@ for(i in 1:nrow(new_gi_events)){
                                      request_date = snapshot_date)
     
     # storage_depth <- snapshot$storage_depth_ft
-    orifice_height_ft <- snapshot$assumption_orificeheight_ft
+    orifice_height_ft <- snapshot$orificedepth_ft
     
     
     monitoringdata <- marsFetchMonitoringData(con = mars_con, 
@@ -363,8 +365,8 @@ for(i in 1:nrow(new_gi_events)){
                                               start_date = as.character(rain_start_date), 
                                               end_date = as.character(rain_end_date), 
                                               sump_correct = TRUE,
-                                              debug = TRUE,
                                               level = TRUE)
+    
     ow_data <- marsFetchMonitoringData(con = mars_con, 
                                        target_id = temp_df$smp_id, 
                                        ow_suffix = "OW1", 
@@ -375,6 +377,7 @@ for(i in 1:nrow(new_gi_events)){
                                        debug = TRUE,
                                        level = TRUE)
     
+    ##### 3.3 Rearrange Data for Calculations #####
     
     rain_event_data <- monitoringdata[["Rain Event Data"]]
     rain_data <- monitoringdata[["Rainfall Data"]]
@@ -399,6 +402,8 @@ for(i in 1:nrow(new_gi_events)){
     selected_event <- obs_data %>%
       dplyr::filter(radar_event_uid == temp_df$radar_event_uid)
     
+    ##### 3.4 Calculate Metrics #####
+    
     #Draindown time
     draindown_hr <- marsDraindown_hr(dtime_est = selected_event$dtime_est,
                                      rainfall_in = selected_event$rainfall_in,
@@ -407,9 +412,20 @@ for(i in 1:nrow(new_gi_events)){
     #Observed relative storage utilization
     percentstorageused_relative <- marsPeakStorage_percent(waterlevel_ft = selected_event$level_ft - dplyr::first(selected_event$level_ft), storage_depth_ft = snapshot$storage_depth_ft) %>% round(4) 
     
-    #overtopping
+    # overtopping; Bypass Time Counting 
     overtop <- marsOvertoppingCheck_bool(selected_event$level_ft, storage_depth)
     
+    if(overtop == TRUE){
+      overtop_length <- max(max(selected_event$dtime_est[selected_event$level_ft > storage_depth]) -
+                            min(selected_event$dtime_est[selected_event$level_ft > storage_depth]),
+                            selected_event$dtime_est[2] - selected_event$dtime_est[1]
+                            )
+    } else {
+      overtop_length <- 0
+    }
+     
+    
+    ##### 3.5 Head Differential Calculations #####
     
     #Head Differential
     peak_time <- dplyr::filter(level_data, level_ft == max(level_ft, na.rm = TRUE)) %>% dplyr::select(dtime_est) %>% pull
@@ -419,6 +435,17 @@ for(i in 1:nrow(new_gi_events)){
     peak_ow_head <- dplyr::filter(ow_level_data, dtime_est == peak_time) %>% dplyr::select(level_ft) %>% pull
     peak_ow_head <- peak_ow_head[length(peak_ow_head)]
     head_dif_x <- peak_gi_head - peak_ow_head
+    
+    owpeak_time <- dplyr::filter(ow_level_data, level_ft == max(level_ft, na.rm = TRUE)) %>% dplyr::select(dtime_est) %>% pull
+    owpeak_time <- owpeak_time[length(owpeak_time)]
+    
+    peak_lag <- owpeak_time - peak_time
+    
+    owpeak_gi_head <- dplyr::filter(level_data, dtime_est == owpeak_time) %>% dplyr::select(level_ft) %>% pull 
+    owpeak_gi_head <- owpeak_gi_head[length(owpeak_gi_head)]
+    owpeak_ow_head <- dplyr::filter(ow_level_data, level_ft == max(level_ft, na.rm = TRUE)) %>% dplyr::select(level_ft) %>% pull 
+    owpeak_ow_head <- owpeak_ow_head[length(owpeak_ow_head)]
+    owhead_dif_x <- owpeak_gi_head - owpeak_ow_head
     
     #Relative head differential
     # sensor heights
@@ -430,12 +457,20 @@ for(i in 1:nrow(new_gi_events)){
     gi_sensor_height <- asbuilt_elev$as_built_elev[asbuilt_elev$system_id == smp_2_sys(temp_df$smp_id) & (asbuilt_elev$ow_suffix == "GI1"| asbuilt_elev$ow_suffix == "GI2")] -
                  well_meas$cap_to_hook_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")] -
                  well_meas$hook_to_sensor_ft[well_meas$smp_id == temp_df$smp_id & (well_meas$ow_suffix == "GI1" | well_meas$ow_suffix == "GI2")]
+    
     rel_head_dif_x <- (peak_gi_head + gi_sensor_height) - (peak_ow_head + ow_sensor_height)
+    owrel_head_dif_x <- (owpeak_gi_head + gi_sensor_height) - (owpeak_ow_head + ow_sensor_height)
     
     if(length(head_dif_x) > 1)
     {
       head_dif_x <- mean(head_dif_x)
       rel_head_dif_x <- mean(rel_head_dif_x)
+    }
+    
+    if(length(owhead_dif_x) > 1)
+    {
+     owhead_dif_x <- mean(owhead_dif_x)
+     owrel_head_dif_x <- mean(owrel_head_dif_x)
     }
     
     #write metrics as CSV
@@ -462,11 +497,17 @@ for(i in 1:nrow(new_gi_events)){
              head_dif = head_dif_x,
              rel_head_dif = rel_head_dif_x,
              peak_gi_head = peak_gi_head,
-             ow_head = peak_ow_head,
+             ow_head_gipeak = peak_ow_head,
+             peak_ow_head = owpeak_ow_head,
+             gi_head_owpeak = owpeak_gi_head,
+             head_dif_owpeak = owhead_dif_x,
+             rel_head_dif_owpeak = owrel_head_dif_x,
              ow_sensor_elev = ow_sensor_height,
-             gi_sensor_elev = gi_sensor_height)
+             gi_sensor_elev = gi_sensor_height,
+             peak_lag = peak_lag,
+             bypass_length = overtop_length)
 
-    write.table(metrics_output, file = paste0(folderpath, "/", current_date, "/gi_metrics.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
+    write.table(metrics_output, file = paste0(folderpath, "/", Sys.Date(), "/gi_metrics_5min.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
     
     #Manually managing memory just in case
     rm(obs_data)
@@ -475,7 +516,7 @@ for(i in 1:nrow(new_gi_events)){
   }, error=function(e){
     error_log[1,1] <<- i
     error_log[1,2] <<- toString(conditionMessage(e))
-    write.table(error_log, file = paste0(folderpath, "/", current_date, "/error_log.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
+    write.table(error_log, file = paste0(folderpath, "/", Sys.Date(), "/error_log.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
     
   })
 }
@@ -483,7 +524,7 @@ for(i in 1:nrow(new_gi_events)){
   
 # read gi and ow metrics
   
-gi_metrics <-  read.csv(paste0(folderpath, "/", current_date, "/gi_metrics.csv"))
+gi_metrics <-  read.csv(paste0(folderpath, "/", Sys.Date(), "/gi_metrics_5min.csv"))
 
 
 #### Compare to latest ow metrics ####
@@ -520,8 +561,6 @@ gi_metrics <- gi_metrics %>% dplyr::mutate(smp_radar_uid = paste(radar_event_uid
 ow_metrics <- ow_metrics %>% dplyr::filter(smp_radar_uid %in% gi_metrics$smp_radar_uid)
 
 
-# add storm event depth and the design storm for filtering
-
 
 
 # summarize
@@ -545,13 +584,13 @@ gi_summary <- gi_metrics %>% group_by(ow_uid) %>% summarize(n = n(),
 gi_summary <- gi_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
 
 
-write.csv(gi_summary, file = paste0(folderpath, "/", current_date, "/gi_summary.csv"))
-write.csv(ow_summary, file = paste0(folderpath, "/", current_date, "/ow_summary.csv"))
+write.csv(gi_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_summary.csv"))
+write.csv(ow_summary, file = paste0(folderpath, "/", Sys.Date(), "/ow_summary.csv"))
 
 ## Join metrics with storm information
 
 ot_data <- gi_metrics %>% left_join(rain_radar_event, by = "radar_event_uid")
-write.csv(ot_data, paste0(folderpath, "/", current_date, "/overtopping_data.csv"))
+write.csv(ot_data, paste0(folderpath, "/", Sys.Date(), "/overtopping_data.csv"))
 
 # design depths
 sysbdv <- dbGetQuery(mars_con,
@@ -569,15 +608,16 @@ dsgn_storm_data <- ot_data %>%
                    dplyr::filter(eventdepth_in <= sys_creditedstormsizemanaged_in)
 
 # summarize design data
-gi_dsgn_summary <- dsgn_storm_data %>% group_by(ow_uid) %>% summarize(n = n(),
-                                                            overtopping_count = sum(overtop),
-                                                            mean_event = mean(eventdepth_in),
-                                                            avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
-  dplyr::left_join(gi_metrics, by = "ow_uid") %>%
-  dplyr::select(ow_uid,smp_id,ow_suffix,mean_event,n,overtopping_count,avg_RPSU) %>%
-  unique() %>% dplyr::filter(!is.na(smp_id))
-
-gi_dsgn_summary <- gi_dsgn_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
-
-write.csv(gi_dsgn_summary, paste0(folderpath, "/", current_date, "/gi_design_storm_summary.csv"))
+# we now do this in data_interpretation.R so that we can filter out specific dates where issues occur!
+# gi_dsgn_summary <- dsgn_storm_data %>% group_by(ow_uid) %>% summarize(n = n(),
+#                                                             overtopping_count = sum(overtop),
+#                                                             mean_event = mean(eventdepth_in),
+#                                                             avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
+#   dplyr::left_join(gi_metrics, by = "ow_uid") %>%
+#   dplyr::select(ow_uid,smp_id,ow_suffix,mean_event,n,overtopping_count,avg_RPSU) %>%
+#   unique() %>% dplyr::filter(!is.na(smp_id))
+# 
+# gi_dsgn_summary <- gi_dsgn_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+# 
+# write.csv(gi_dsgn_summary, paste0(folderpath, "/", Sys.Date(), "/gi_design_storm_summary.csv"))
 

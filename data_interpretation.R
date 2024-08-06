@@ -2,6 +2,7 @@
 #### Summary and Data Computation
 #### Written by : Brian Cruice
 #### Written on: 01/18/2022
+#### Run on: 04/03/2024
 
 ### 0.1 packages
 library(tidyverse)
@@ -22,6 +23,9 @@ library(wesanderson)
 plot_save <- TRUE
 
 #### 1.0 Set up ####
+#Database Connection
+mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
+
 # Read data, set up folders
 folderpath <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/"
 
@@ -45,7 +49,7 @@ for(i in 1:length(folders)){
 }
 
 file_path <- paste0(latest_date,"/ot_with_last_jet_data.csv")
-raw_data <- read.csv(paste0(folderpath,"/",file_path)) %>% dplyr::select(-X,-X.1)
+raw_data <- read.csv(paste0(folderpath,file_path)) %>% dplyr::select(-X,-X.1)
 
 # Cityworks events
 event_dates <- read.csv(paste0(folderpath,"/","graph_dates.csv"))
@@ -80,11 +84,14 @@ raw_data$system_id <- sapply(raw_data$smp_id,smp_2_sys)
 # Removing sections of time based on observations from cityworks and SRTS
 
 # first, make all dates the correct format.
-raw_data$eventdatastart_edt %<>% ymd_hms()
-raw_data$eventdataend_edt   %<>% ymd_hms()
+date_formats <- c(guess_formats(raw_data$eventdatastart_edt, "mdy HMS"),
+                  guess_formats(raw_data$eventdatastart_edt, "mdy"))
 
-# raw_data$eventdatastart_edt %<>% mdy_hm()
-# raw_data$eventdataend_edt   %<>% mdy_hm()
+start_dates_x <- raw_data$eventdatastart_edt %>% lubridate::as_datetime(format = date_formats)
+end_dates_x <-  raw_data$eventdataend_edt %>% lubridate::as_datetime(format = date_formats)
+
+raw_data$eventdatastart_edt <- start_dates_x
+raw_data$eventdataend_edt <- end_dates_x
 
 # 1-1 Taken offline
 last_date_1_1 <- event_dates %>% dplyr::filter(system_id == '1-1') %>%
@@ -131,6 +138,37 @@ filtered_data <- filtered_data %>%
                  mutate(norm_head = rel_head_dif/max_head) %>%
                  select(-max_head)
   
+
+filtered_data <- filtered_data %>% dplyr::filter(norm_head >= 0)
+
+
+#### 1.6 New Data Summary After Date Filtration ####
+# design depths
+sysbdv <- dbGetQuery(mars_con,
+                     paste0("SELECT * FROM external.tbl_systembdv where system_id IN ('",
+                            paste(unique(filtered_data$system_id), collapse = "', '"),
+                            "')")
+)
+
+sys_dsgn_strm <- sysbdv %>% dplyr::select(system_id, sys_creditedstormsizemanaged_in)
+
+# join to ot_data
+dsgn_storm_data <- filtered_data %>%
+  dplyr::left_join(sys_dsgn_strm, by = 'system_id') %>%
+  dplyr::filter(eventdepth_in <= sys_creditedstormsizemanaged_in)
+
+# summarize design data
+gi_dsgn_summary <- dsgn_storm_data %>% group_by(ow_uid) %>% summarize(n = n(),
+                                                                      overtopping_count = sum(overtop),
+                                                                      mean_event = mean(eventdepth_in),
+                                                                      avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
+  dplyr::left_join(dsgn_storm_data, by = "ow_uid") %>%
+  dplyr::select(ow_uid,smp_id,ow_suffix,mean_event,n,overtopping_count,avg_RPSU) %>%
+  unique() %>% dplyr::filter(!is.na(smp_id))
+
+gi_dsgn_summary <- gi_dsgn_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+
+write.csv(gi_dsgn_summary, paste0(folderpath, "/", latest_date,"/gi_design_storm_summary.csv"))
 
 #### 2.0 Data Visualization ####
 
@@ -908,7 +946,7 @@ hdif_inlet_ot_bplot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = in
                         scale_fill_manual(values = wes_palettes$Moonrise2) + 
                         
                         geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
-                                   hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+                                   hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
                         
                         
                         #from pwdgsi plots; house style
@@ -1466,31 +1504,36 @@ hdif_vs_age_des
 #### 2.4.5 Normalized head dif, design storms only ####
 
 # By pipe slope
+slope_x <- design_data$Distrib..Slope.... == 0.5
+slope_x <- factor(slope_x, ordered = TRUE, levels = c(TRUE, FALSE))
+design_data$Distribution_slope <- slope_x
+
 
 # by pipe slope labels
 label_text <- design_data %>%
-  dplyr::group_by(Distrib..Slope....) %>%
+  dplyr::group_by(Distribution_slope) %>%
   summarize(slope_count = n()) %>%
   ungroup() %>%
-  right_join(design_data, by = c("Distrib..Slope....")) %>%
-  dplyr::group_by(overtop, Distrib..Slope....) %>%
+  right_join(design_data, by = c("Distribution_slope")) %>%
+  dplyr::group_by(overtop, Distribution_slope) %>%
   summarize(label = paste0(round(100*n()/slope_count,0),"%"),
             norm_head = max(norm_head)) %>%
-  dplyr::select(overtop,Distrib..Slope....,label, norm_head) %>%
+  dplyr::select(overtop,Distribution_slope,label, norm_head) %>%
   dplyr::distinct()
 
 label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
 
-ot_hdif_norm_slope_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = as.factor(Distrib..Slope....), fill = overtop)) +
+
+ot_hdif_norm_slope_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = Distribution_slope, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
   geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
-  xlab("Distribution Pipe Slope (%)") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  xlab("Sloped Distribution Pipe") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
   ggtitle("Overtopping by Head Differential and Distribution Pipe Slope") +
   scale_fill_manual(values = c("grey41","grey82")) + 
   scale_fill_manual(values = wes_palettes$Moonrise2) + 
   
   geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
-             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
   
   #from pwdgsi plots; house style
   ggplot2::theme(
@@ -1528,13 +1571,13 @@ label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
 ot_hdif_norm_system_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = system_id, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
   geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
-  xlab("System ID") + ylab("NOrmalized Head Dif. at Peak Water Level in Green Inlet") +
+  xlab("System ID") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
   ggtitle("Overtopping by Head Differential per System") +
   scale_color_manual(values = c("darkgray","black")) + 
   scale_fill_manual(values = wes_palettes$Moonrise2) + 
   
   geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
-             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE) +
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
   
   #from pwdgsi plots; house style
   ggplot2::theme(
@@ -1646,6 +1689,11 @@ hdif_norm_szn_ot_bplot_des
 design_data$inlet_style <- NA
 design_data[design_data$Trap == FALSE,]$inlet_style <- "New (Without Trap)"
 design_data[design_data$Trap == TRUE,]$inlet_style <- "Old (with Trap)"
+# design_data$inlet_style <- as.factor(design_data$inlet_style)
+# levels(design_data$inlet_style) <- c("Old (with Trap)", "New (Without Trap)", ordered = TRUE)
+
+inlet_style_x <- factor(design_data$inlet_style, ordered = TRUE, levels = c("Old (with Trap)", "New (Without Trap)"))
+design_data$inlet_style <- inlet_style_x
 
 label_text <- design_data %>%
   dplyr::group_by(inlet_style) %>%
@@ -1659,6 +1707,8 @@ label_text <- design_data %>%
   dplyr::distinct()
 
 label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
+
+
 
 hdif_norm_inlet_ot_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = inlet_style, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
@@ -1844,8 +1894,12 @@ hdif_norm_vs_age_des
 
 
 #### 2.5 Save boxplots ####
-bplot_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/boxplots"
+# bplot_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/boxplots"
+bplot_folder <- paste0(folderpath,"/boxplots/",Sys.Date())
 bplot_design_folder <- paste0(bplot_folder,"/Design Storms")
+
+if(!dir.exists(bplot_folder)){dir.create(bplot_folder)}
+if(!dir.exists(bplot_design_folder)){dir.create(bplot_design_folder)}
 
 if(plot_save == TRUE){
 
@@ -1880,7 +1934,7 @@ ggsave(filename = paste0(bplot_folder,"/Head_dif_vs_Age.png"), plot = hdif_vs_ag
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_sump_depth_design_storms.png"), plot = hdif_sump_ot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_filter_bag_design_storms.png"), plot = hdif_fbag_ot_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_slope_design_storms.png"), plot = ot_hdif_slope_bplot_des, width = 10, height = 8)
-ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_system_design_storms.png"), plot = ot_hdif_system_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_system_design_storms.png"), plot = ot_hdif_system_bplot_des, width = 16, height = 9)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_season_and_sys_design_storms.png"), plot = hdif_szn_sys_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_season_design_storms.png"), plot = hdif_szn_ot_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_Inlet_type_design_storms.png"), plot = hdif_inlet_ot_bplot_des, width = 10, height = 8)
@@ -1890,11 +1944,11 @@ ggsave(filename = paste0(bplot_design_folder,"/Head_dif_vs_Age_design_storms.png
 # normalized head differential, design storm only
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_sump_depth_design_storms.png"), plot = hdif_norm_sump_ot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_filter_bag_design_storms.png"), plot = hdif_norm_fbag_ot_bplot_des, width = 10, height = 8)
-ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_slope_design_storms.png"), plot = ot_hdif_norm_slope_bplot_des, width = 10, height = 8)
-ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_system_design_storms.png"), plot = ot_hdif_norm_system_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_slope_design_storms.png"), plot = ot_hdif_norm_slope_bplot_des, width = 3200, height = 1800, units = "px")
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_system_design_storms.png"), plot = ot_hdif_norm_system_bplot_des, width = 3200, height = 1800, units = "px")
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_season_and_sys_design_storms.png"), plot = hdif_norm_szn_sys_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_season_design_storms.png"), plot = hdif_norm_szn_ot_bplot_des, width = 10, height = 8)
-ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Inlet_type_design_storms.png"), plot = hdif_norm_inlet_ot_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Inlet_type_design_storms.png"), plot = hdif_norm_inlet_ot_bplot_des, width = 3200, height = 1800, units = "px")
 ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Age_design_storms.png"), plot = hdif_norm_vs_age_des, width = 10, height = 8)
 
 }
@@ -1967,6 +2021,22 @@ filtered_data_sum <- filtered_data %>%
                      summarise(Count = n(),
                                mean_hd = mean(rel_head_dif, na.rm = TRUE),
                                var_hd = sd(rel_head_dif, na.rm = TRUE))
+
+
+
+#### 2.9 Summary Stats with Filtered Data ####
+
+gi_filter_summary <- filtered_data %>% group_by(ow_uid) %>% summarize(n = n(),
+                                                                       overtopping_count = sum(overtop),
+                                                                       avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
+  dplyr::left_join(filtered_data, by = "ow_uid") %>%
+  dplyr::select(ow_uid,smp_id,ow_suffix,n,overtopping_count, avg_RPSU) %>%
+  unique() %>% dplyr::filter(!is.na(smp_id))
+
+gi_filter_summary <- gi_filter_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+
+
+write.csv(gi_filter_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_filter_summary.csv"))
 
 #### 3.0 STAT Model Creation - overtopping ####
 
@@ -2186,6 +2256,13 @@ anova(model2)
 hist(model2$residuals)
 shapiro.test(model2$residuals)
 qqnorm(model2$residuals)
+
+# model j1
+
+
+
+# model j2
+modelj1 <- lmer(overtop ~ Trap + (1|ow_uid), data = filtered_data)
 
 # model 3
 model3 <- lm(overtop ~ Trap, data = filtered_data)
