@@ -527,16 +527,19 @@ for(i in 1:nrow(new_gi_events)){
 gi_metrics <-  read.csv(paste0(folderpath, "/", Sys.Date(), "/gi_metrics_5min.csv"))
 
 
-#### Compare to latest ow metrics ####
+#### 4.0 Compare to latest ow metrics ####
 
-# This folder needs to be updated with the latest metrics
-
+# This folder needs to be updated with the latest metrics when we have them.
+# We have not completed a comprehensive run for OW metrics in some time
 ow_folder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/48 Short-Circuiting GSI Data Analysis/Calculation Phase/Metrics Calculations/"
+
+
+# read the data from the most recent run of this script
+# this general procedure with a file path and file name
+# should be moved into a fx at some point... It would work for SC analysis as well
 
 ow_folders <- list.files(ow_folder)
 ow_folders <- ow_folders[!grepl(pattern = "\\.",ow_folders)]
-# read the data from the most recent run of this script
-# this should me moved into a fx at some point... migrate into SC analysis as well
 last_run_date <- NA
 for(i in 1:length(ow_folders)){
   if(try(as.Date(ow_folders[i]), silent = TRUE) %>% is.Date()){
@@ -587,37 +590,28 @@ gi_summary <- gi_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
 write.csv(gi_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_summary.csv"))
 write.csv(ow_summary, file = paste0(folderpath, "/", Sys.Date(), "/ow_summary.csv"))
 
+
+#### X.X Code No Longer Used ####
+
 ## Join metrics with storm information
-
-ot_data <- gi_metrics %>% left_join(rain_radar_event, by = "radar_event_uid")
-write.csv(ot_data, paste0(folderpath, "/", Sys.Date(), "/overtopping_data.csv"))
-
-# design depths
-sysbdv <- dbGetQuery(mars_con,
-                      paste0("SELECT * FROM external.tbl_systembdv where system_id IN ('",
-                             paste(assets$system_id, collapse = "', '"),
-                             "')")
-                     )
-
-sys_dsgn_strm <- sysbdv %>% dplyr::select(system_id, sys_creditedstormsizemanaged_in)
-
-# join to ot_data
-ot_data$system_id <- smp_2_sys(ot_data$smp_id)
-dsgn_storm_data <- ot_data %>%
-                   dplyr::left_join(sys_dsgn_strm, by = 'system_id') %>%
-                   dplyr::filter(eventdepth_in <= sys_creditedstormsizemanaged_in)
-
-# summarize design data
-# we now do this in data_interpretation.R so that we can filter out specific dates where issues occur!
-# gi_dsgn_summary <- dsgn_storm_data %>% group_by(ow_uid) %>% summarize(n = n(),
-#                                                             overtopping_count = sum(overtop),
-#                                                             mean_event = mean(eventdepth_in),
-#                                                             avg_RPSU = mean(percentstorageused_relative, na.rm = TRUE)) %>%
-#   dplyr::left_join(gi_metrics, by = "ow_uid") %>%
-#   dplyr::select(ow_uid,smp_id,ow_suffix,mean_event,n,overtopping_count,avg_RPSU) %>%
-#   unique() %>% dplyr::filter(!is.na(smp_id))
 # 
-# gi_dsgn_summary <- gi_dsgn_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
+# ot_data <- gi_metrics %>% left_join(rain_radar_event, by = "radar_event_uid")
+# write.csv(ot_data, paste0(folderpath, "/", Sys.Date(), "/overtopping_data.csv"))
 # 
-# write.csv(gi_dsgn_summary, paste0(folderpath, "/", Sys.Date(), "/gi_design_storm_summary.csv"))
+# # design depths
+# sysbdv <- dbGetQuery(mars_con,
+#                       paste0("SELECT * FROM external.tbl_systembdv where system_id IN ('",
+#                              paste(assets$system_id, collapse = "', '"),
+#                              "')")
+#                      )
+# 
+# sys_dsgn_strm <- sysbdv %>% dplyr::select(system_id, sys_creditedstormsizemanaged_in)
+# 
+# # join to ot_data
+# ot_data$system_id <- smp_2_sys(ot_data$smp_id)
+# dsgn_storm_data <- ot_data %>%
+#                    dplyr::left_join(sys_dsgn_strm, by = 'system_id') %>%
+#                    dplyr::filter(eventdepth_in <= sys_creditedstormsizemanaged_in)
+
+
 
