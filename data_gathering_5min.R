@@ -11,7 +11,7 @@ library(odbc)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
-library(xlsx)
+library(openxlsx)
 library(RPostgreSQL)
 library(RPostgres)
 library(sf)
@@ -47,13 +47,13 @@ piperuns <- read.csv(paste0(folderpath,"/","pipe_run.csv"))
 
 # System characteristics
 sys_char_file <- paste0(folderpath,"/SystemCharacteristics.xlsx")
-sys_char <- xlsx::read.xlsx(file = sys_char_file,
-                            sheetName = "Characteristics")
+sys_char <- openxlsx::read.xlsx(xlsxFile = sys_char_file,
+                            sheet = "Characteristics")
 
 
 # As-built elevations
 asbuilt_file <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/relative_elevations.xlsx"
-asbuilt_elev <- xlsx::read.xlsx(file = asbuilt_file, sheetName = "elev")
+asbuilt_elev <- openxlsx::read.xlsx(xlsxFile = asbuilt_file, sheet = "elev")
 
 ##### 1.2 Query MARS DB data #####
 ow_query <- paste0("WITH sys as (SELECT *, admin.fun_smp_to_system(smp_id) as system_id  FROM fieldwork.tbl_ow)
@@ -217,13 +217,13 @@ ggsave(plot = gi_wo_plot, file = paste0(folderpath,"/Preliminary Visualizations/
 ##### 3.1 Read latest gi_metrics from last run of the script ####
 folders <- list.files(folderpath)
 folders <- folders[!grepl(pattern = "\\.",folders)]
-# read the data from the most recent run of this script
+#read the data from the most recent run of this script
 last_run_date <- NA
 for(i in 1:length(folders)){
   if(try(as.Date(folders[i]), silent = TRUE) %>% is.Date()){
     # set new date
     new_date <- as.Date(folders[i])
-    
+
     # usurp if latest date
     last_run_date <- max(c(new_date, last_run_date), na.rm = TRUE)
   }
@@ -315,19 +315,19 @@ latest_data <- read.csv(paste0(folderpath,"/",last_run_date,"/gi_metrics_5min.cs
   }
    
   
-# Copy latest data over if necessary
-  if(file.exists(paste0(folderpath, "/", Sys.Date(),"/gi_metrics_5min.csv")) == FALSE){
-  file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics_5min.csv"),
-            to = paste0(folderpath, "/", Sys.Date()))
-  }
+# # Copy latest data over if necessary
+#   if(file.exists(paste0(folderpath, "/", Sys.Date(),"/gi_metrics_5min.csv")) == FALSE){
+#   file.copy(from = paste0(folderpath,"/",last_run_date,"/gi_metrics_5min.csv"),
+#             to = paste0(folderpath, "/", Sys.Date()))
+#   }
   
 
-for(i in 1:nrow(new_gi_events)){
+for(i in 1:nrow(gi_events)){
   
   tryCatch({
-    
+    #browser()
     ##### 3.2 Query rain, ow, and gi data from the database for select event ####
-    temp_df <- new_gi_events[i,]
+    temp_df <- gi_events[i,]
     
     rain_start_date <- rain_radar_event %>%
       filter(radar_event_uid == temp_df[1, "radar_event_uid"]) %>%
@@ -416,14 +416,33 @@ for(i in 1:nrow(new_gi_events)){
     overtop <- marsOvertoppingCheck_bool(selected_event$level_ft, storage_depth)
     
     if(overtop == TRUE){
-      overtop_length <- max(max(selected_event$dtime_est[selected_event$level_ft > storage_depth]) -
-                            min(selected_event$dtime_est[selected_event$level_ft > storage_depth]),
-                            selected_event$dtime_est[2] - selected_event$dtime_est[1]
-                            )
+      overtop_length <- sum(selected_event$level_ft > storage_depth)
+        
+                          # max(max(selected_event$dtime_est[selected_event$level_ft > storage_depth]) -
+                          #   min(selected_event$dtime_est[selected_event$level_ft > storage_depth]),
+                          #   selected_event$dtime_est[2] - selected_event$dtime_est[1]
+                          #   )
     } else {
       overtop_length <- 0
     }
+    
+    length_check <- sum(selected_event$rainfall_in > 0, na.rm = TRUE)
      
+    
+    eventplot <- marsCombinedPlot(event = temp_df$radar_event_uid,
+                                  structure_name = paste(temp_df$smp_id, temp_df$ow_suffix),
+                                  obs_datetime = selected_event$dtime_est,
+                                  obs_level_ft = selected_event$level_ft,
+                                  rainfall_datetime = selected_event$dtime_est,
+                                  rainfall_in = selected_event$rainfall_in,
+                                  storage_depth_ft = overtopping_elev$deployment_depth_ft[overtopping_elev$ow_uid == temp_df$ow_uid])
+    
+    ggsave(filename = paste0(folderpath, "/", Sys.Date(), "/", temp_df$smp_id, "_", temp_df$ow_suffix, "_", temp_df$radar_event_uid, "_", "overtopping_", overtop_length, "_of_", length_check, ".PNG"),
+           plot = eventplot,
+           width = 12,
+           height = 8, 
+           units = "in")
+    
     
     ##### 3.5 Head Differential Calculations #####
     
@@ -505,9 +524,10 @@ for(i in 1:nrow(new_gi_events)){
              ow_sensor_elev = ow_sensor_height,
              gi_sensor_elev = gi_sensor_height,
              peak_lag = peak_lag,
-             bypass_length = overtop_length)
+             bypass_length = overtop_length,
+             length_check = length_check)
 
-    write.table(metrics_output, file = paste0(folderpath, "/", Sys.Date(), "/gi_metrics_5min.csv"), sep = ",", append = TRUE, col.names = FALSE, row.names = FALSE)
+    write.table(metrics_output, file = paste0(folderpath, "/", Sys.Date(), "/gi_metrics_5min.csv"), sep = ",", append = TRUE, col.names = TRUE, row.names = FALSE)
     
     #Manually managing memory just in case
     rm(obs_data)
