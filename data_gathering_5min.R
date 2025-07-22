@@ -7,16 +7,13 @@
 
 ##### 0.1 packages #####
 library(tidyverse)
-library(odbc)
+library(pool)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
 library(openxlsx)
 library(RPostgreSQL)
 library(RPostgres)
-library(sf)
-library(mapsf)
-
 
 # not in operator
 `%!in%` <- Negate(`%in%`)
@@ -30,8 +27,25 @@ smp_2_sys <- function(smp_id){
 
 
 ##### 0.2 connect #####
-cw_con <- odbc::dbConnect(odbc::odbc(),"CityWorks",uid = "cwread", pwd = "readcw", database = "PWD_Cityworks")
-mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
+cw_con <- DBI::dbConnect(odbc::odbc(),
+                    Driver = "ODBC Driver 17 for SQL Server",
+                    Server = "PWDCWSQLP",
+                    Database = "PWD_Cityworks",
+                    uid = Sys.getenv("cw_uid"),
+                    pwd= Sys.getenv("cw_pwd"))
+
+mars_con <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
+
+localfolder <- "~/github/green-inlet-monitoring/plots/"
 
 ####  1.0 Basic Data Set UP ####
 ##### 1.1 Load Spreadsheet data from project folder #####
@@ -66,6 +80,13 @@ ow <- dbGetQuery(mars_con, ow_query)
 asset_query <- paste0("SELECT * FROM external.mat_assets WHERE system_id IN ('",paste(systems, collapse = "', '"),"')")
 
 assets <- dbGetQuery(mars_con, asset_query)
+
+#Monica - 5/15/2025
+  #Post-retirement, the facility ID for the green inlet at 439-1 had its facility ID changed
+  #Cityworks work orders reference 575649EA-4B8B-4CAF-B7E9-63976D880C97
+  #GIS, and our scrape thereof, reference bd7322a4-5984-4340-a678-5544994678d3
+  #To facilitate recreation of Brian's old work, we will overwrite this facility ID in the assets object for now
+  assets$facility_id[assets$component_id == "G04390101-62-05"] <- tolower("575649EA-4B8B-4CAF-B7E9-63976D880C97")
   
 # subset of GI ow_uid's
 gi_ow <- ow[grepl("GI", ow$ow_suffix),]
@@ -117,7 +138,7 @@ subsurf_workorders <- subsurf_workorders[!duplicated(colnames(subsurf_workorders
 
 # Thank you for the code, Farshad
 #get the smps
-dataconv <- dbConnect(odbc(),
+dataconv <- DBI::dbConnect(odbc::odbc(),
                       Driver = "ODBC Driver 17 for SQL Server",
                       Server = "pwdgissql",
                       Database = "DataConv",
@@ -157,7 +178,7 @@ gi_asset_workorders <- gi_asset_workorders %>% dplyr::filter(ACTUALSTARTDATE >= 
 
 in_prot_maint <- gi_workorders %>% dplyr::filter(DESCRIPTION == "SURFACE INLET PROTECTION MAINTENANCE") %>%
                  # strip curly brackets to associate facility id
-                 dplyr::mutate(facility_id = toupper(as.character(gsub("\\{|\\}","",FEATUREUID)))) %>%
+                 dplyr::mutate(facility_id = tolower(as.character(gsub("\\{|\\}","",FEATUREUID)))) %>%
                  # associate with facility id
                  dplyr::left_join(assets, by = "facility_id")
 

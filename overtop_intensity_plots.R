@@ -6,13 +6,13 @@
 
 ### 0.1 packages
 library(tidyverse)
-library(odbc)
+library(pool)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
 library(ggplot2)
 library(cowplot)
-library(xlsx)
+library(openxlsx)
 library(wesanderson)
 
 #### 1.0 Set up ####
@@ -49,14 +49,13 @@ date_file <- "graph_dates.csv"
 raw_dates <- read.csv(paste0(folderpath,date_file))
   
 # read inlet types
-inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
-                              sheetName = "Inlet Depths")
+inlet_type <- openxlsx::read.xlsx(xlsxFile = paste0(folderpath,"Assets.xlsx"),
+                                  sheet = "Inlet Depths")
 
 # read System characteristics
 sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
-sys_char <- xlsx::read.xlsx(file = sys_char_file,
-                            sheetName = "Characteristics")
-
+sys_char <- openxlsx::read.xlsx(xlsxFile = sys_char_file,
+                            sheet = "Characteristics")
 
 
 #### 1.2 filter dates not to be used ####
@@ -97,7 +96,16 @@ filtered_data <- filtered_data %>% dplyr::filter(smp_id != '439-1-1' |
 
 
 # Grab measurements for all ows
-mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
+mars_con <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
 
 ow_query <- paste0("WITH sys as (SELECT *, admin.fun_smp_to_system(smp_id) as system_id  FROM fieldwork.tbl_ow)
              SELECT * FROM sys WHERE system_id IN ('",paste(systems, collapse = "', '"),"')")
@@ -115,7 +123,16 @@ plotpath <- paste0(folderpath,"/Overtopping Graphs/",Sys.Date())
 if(!dir.exists(plotpath)){dir.create(plotpath)}
 
 # Connect to database
-mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
+mars_con <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
 
 # list of unique monitoring locations
 mon_locs <- filtered_data %>% dplyr::select(smp_id, ow_suffix) %>% distinct()
@@ -430,7 +447,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
   
   
   # qmax value
-  qmax <- system_chars$Max.Flow.w..Perforations..CFS. %>% as.numeric() %>% round(2)
+  qmax <- system_chars$`Max.Flow.w/.Perforations.(CFS)` %>% as.numeric() %>% round(2)
   
   # y-max value
   ymax_obs <- max(c(data$qpeak,qmax), na.rm = TRUE)*1.1 # buffer for higher qpeak values
@@ -514,7 +531,7 @@ overtopping_qmax_dsgnonly_plot <- function(data, design_storm, system_chars, eve
   
   
   # qmax value
-  qmax <- system_chars$Max.Flow.w..Perforations..CFS. %>% as.numeric() %>% round(2)
+  qmax <- system_chars$`Max.Flow.w/.Perforations.(CFS)` %>% as.numeric() %>% round(2)
   
   # y-max value
   ymax_obs <- max(c(data$qpeak,qmax), na.rm = TRUE)*1.1 # buffer for higher qpeak values
@@ -650,7 +667,7 @@ for(i in 1:nrow(mon_locs)){
                                              GI == mon_locs$ow_suffix[i])
   
   # calculate qpeak; rational method using peak intensity as i. Q= CiA. Use full system drainage area for distr. pipe
-  plot_data$qpeak <- plot_data$eventpeakintensity_inhr*0.95*loc_sys_char$System.Drainage.Area..SF. * (1/12) * (1/3600) # last terms to cfs
+  plot_data$qpeak <- plot_data$eventpeakintensity_inhr*0.95*loc_sys_char$`System.Drainage.Area.(SF)` * (1/12) * (1/3600) # last terms to cfs
 
   
   
@@ -673,7 +690,7 @@ for(i in 1:nrow(mon_locs)){
                                               design_storm = design_storm,
                                               event_dates = event_data$date_complete,
                                               event_descriptions = event_data$graph_text)
-  
+  # 
   # Save Plot
   ggsave(plot = location_plot,
          filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_design_storm_only.png"),
@@ -683,8 +700,8 @@ for(i in 1:nrow(mon_locs)){
          width = 2100, height = 1620, units = "px")  
   ggsave(plot = qmax_plot,
          filename = paste0(plotpath,"/",mon_locs$smp_id[i],"_",mon_locs$ow_suffix[i],"_design_storm_only_qmax.png"),
-         width = 2100, height = 1620, units = "px") 
-  
+         width = 2100, height = 1620, units = "px")
+
 
   }
 

@@ -3,23 +3,31 @@ eventfile <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/06 Special Projec
 
 ##### 0.1 packages #####
 library(tidyverse)
-library(odbc)
+library(pool)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
 library(openxlsx)
 library(RPostgreSQL)
 library(RPostgres)
-library(sf)
-library(mapsf)
+
 
 
 # not in operator
 `%!in%` <- Negate(`%in%`)
 
-mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
+mars_con <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
 
-localfolder <- "C:/Users/mars_db/Documents/github/green-inlet-monitoring-main/plots/"
+localfolder <- "~/github/green-inlet-monitoring/plots/"
 dayfolder <- paste0(localfolder, today())
 dir.create(dayfolder, recursive = TRUE, showWarnings = FALSE)
 

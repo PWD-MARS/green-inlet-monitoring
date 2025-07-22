@@ -6,7 +6,7 @@
 
 ### 0.1 packages
 library(tidyverse)
-library(odbc)
+library(pool)
 library(DBI)
 library(pwdgsi)
 library(lubridate)
@@ -24,8 +24,17 @@ plot_save <- TRUE
 
 #### 1.0 Set up ####
 #Database Connection
-mars_con <- odbc::dbConnect(odbc::odbc(), "mars14_datav2")
-
+# Grab measurements for all ows
+mars_con <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
 # Read data, set up folders
 folderpath <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/"
 
@@ -48,6 +57,8 @@ for(i in 1:length(folders)){
   }
 }
 
+latest_date <- "2024-04-25"
+
 file_path <- paste0(latest_date,"/ot_with_last_jet_data.csv")
 raw_data <- read.csv(paste0(folderpath,file_path)) %>% dplyr::select(-X,-X.1)
 
@@ -56,13 +67,13 @@ event_dates <- read.csv(paste0(folderpath,"/","graph_dates.csv"))
 
 
 # read inlet types
-inlet_type <- xlsx::read.xlsx(file = paste0(folderpath,"Assets.xlsx"),
-                              sheetName = "Inlet Depths")
+inlet_type <- openxlsx::read.xlsx(xlsxFile = paste0(folderpath,"Assets.xlsx"),
+                              sheet = "Inlet Depths")
 
 # Read system characteristics
 sys_char_file <- paste0(folderpath,"SystemCharacteristics.xlsx")
-sys_char <- xlsx::read.xlsx(file = sys_char_file,
-                            sheetName = "Characteristics")
+sys_char <- openxlsx::read.xlsx(xlsxFile = sys_char_file,
+                            sheet = "Characteristics")
 
 #monitoring locations
 mon_locs <- raw_data %>% dplyr::select(smp_id, ow_suffix) %>% distinct()
@@ -168,7 +179,7 @@ gi_dsgn_summary <- dsgn_storm_data %>% group_by(ow_uid) %>% summarize(n = n(),
 
 gi_dsgn_summary <- gi_dsgn_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
 
-write.csv(gi_dsgn_summary, paste0(folderpath, "/", latest_date,"/gi_design_storm_summary.csv"))
+#write.csv(gi_dsgn_summary, paste0(folderpath, "/", latest_date,"/gi_design_storm_summary.csv"))
 
 #### 2.0 Data Visualization ####
 
@@ -319,7 +330,7 @@ filtered_data <- filtered_data %>% left_join(dplyr::select(sys_char, -smp_id), b
 filtered_data$Sys_Age <- lubridate::as.difftime(filtered_data$eventdatastart_edt - lubridate::as_datetime(filtered_data$Construction.Complete.Date))
 
 # peak intensity inlet Plots
-sys_char$Max.Flow.w..Perforations..CFS. %<>% as.numeric()
+sys_char$`Max.Flow.w/.Perforations.(CFS)` %<>% as.numeric()
 
 ot_peak_inlet_plot <- ggplot(data = filtered_data, aes(y = eventpeakintensity_inhr, x = Trap, fill = overtop)) +
                         geom_boxplot(size = 1.1, outlier.shape = NA) +
@@ -352,7 +363,7 @@ ot_peak_q_bplot <- ggplot(data = filtered_data, aes(y = qpeak, x = smp_id, fill 
                     geom_point(position=position_jitterdodge(jitter.width = 0.1), aes(fill = overtop), shape = 21, alpha = 0.7) +
                     xlab("SMP ID") + ylab("Event 15-minute Peak Flow, Qpeak (cfs)") +
                     ggtitle("Event Peak Flow (Qpeak) by SMP ID and Overtopping Status") +
-                    geom_point(data = sys_char, aes(x = smp_id, y = Max.Flow.w..Perforations..CFS.), size = 3, shape = 25, fill = "yellow") + 
+                    geom_point(data = sys_char, aes(x = smp_id, y = `Max.Flow.w/.Perforations.(CFS)`), size = 3, shape = 25, fill = "yellow") + 
                     scale_fill_manual(values = wes_palettes$Moonrise2) +
                     
                     #from pwdgsi plots; house style
@@ -440,7 +451,7 @@ filtered_data_by_site <- filtered_data %>% dplyr::group_by(ow_uid) %>%
 
 #boxplot
 
-ot_peak_slope_bplot <- ggplot(data = filtered_data_by_site, aes(y = Overtop_pct, x = as.factor(Distrib..Slope....), fill = as.factor(Distrib..Slope....))) +
+ot_peak_slope_bplot <- ggplot(data = filtered_data_by_site, aes(y = Overtop_pct, x = as.factor(`Distrib..Slope.(%)`), fill = as.factor(`Distrib..Slope.(%)`))) +
                         geom_boxplot(size = 1.1, outlier.shape = NA) +
                         geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 4) +
                         xlab("Distribution Pipe Slope") + ylab("Percent Overtopping") +
@@ -468,7 +479,7 @@ ot_peak_slope_bplot
 #### 2.2 Overtopping Plots for design storms ####
 
 design_data <-filtered_data %>% 
-  dplyr::filter(eventdepth_in <= Storm.Size.Managed..in.)
+  dplyr::filter(eventdepth_in <= `Storm.Size.Managed.(in)`)
 
 
 ot_peak_bplot_des <- ggplot(data = design_data, aes(y = eventpeakintensity_inhr, x = smp_id, fill = overtop)) +
@@ -593,7 +604,7 @@ design_data <- design_data %>% left_join(trap_status, by = "ow_uid")
 design_data$Sys_Age <- lubridate::as.difftime(design_data$eventdatastart_edt - lubridate::as_datetime(design_data$Construction.Complete.Date))
 
 # peak intensity inlet Plots
-sys_char$Max.Flow.w..Perforations..CFS. %<>% as.numeric()
+sys_char$`Max.Flow.w/.Perforations.(CFS)` %<>% as.numeric()
 
 ot_peak_inlet_plot_des <- ggplot(data = design_data, aes(y = eventpeakintensity_inhr, x = Trap.x, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
@@ -626,7 +637,7 @@ ot_peak_q_bplot_des <- ggplot(data = design_data, aes(y = qpeak, x = smp_id, fil
   geom_point(position=position_jitterdodge(jitter.width = 0.1), aes(fill = overtop), shape = 21, alpha = 0.7) +
   xlab("SMP ID") + ylab("Event 15-minute Peak Flow, Qpeak (cfs)") +
   ggtitle("Event Peak Flow (Qpeak) by SMP ID and Overtopping Status") +
-  geom_point(data = sys_char, aes(x = smp_id, y = Max.Flow.w..Perforations..CFS.), size = 3, shape = 25, fill = "yellow") + 
+  geom_point(data = sys_char, aes(x = smp_id, y = `Max.Flow.w/.Perforations.(CFS)`), size = 3, shape = 25, fill = "yellow") + 
   scale_fill_manual(values = wes_palettes$Moonrise2) +
   
   #from pwdgsi plots; house style
@@ -713,7 +724,7 @@ design_data_by_site <- design_data %>% dplyr::group_by(ow_uid) %>%
 
 #boxplot
 
-ot_peak_slope_bplot_des <- ggplot(data = design_data_by_site, aes(y = Overtop_pct, x = as.factor(Distrib..Slope....), fill = as.factor(Distrib..Slope....))) +
+ot_peak_slope_bplot_des <- ggplot(data = design_data_by_site, aes(y = Overtop_pct, x = as.factor(`Distrib..Slope.(%)`), fill = as.factor(`Distrib..Slope.(%)`))) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
   geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 4) +
   xlab("Distribution Pipe Slope") + ylab("Percent Overtopping") +
@@ -746,19 +757,19 @@ ot_peak_slope_bplot_des
 
 # by pipe slope labels
 label_text <- filtered_data %>%
-  dplyr::group_by(Distrib..Slope....) %>%
+  dplyr::group_by(`Distrib..Slope.(%)`) %>%
   summarize(slope_count = n()) %>%
   ungroup() %>%
-  right_join(filtered_data, by = c("Distrib..Slope....")) %>%
-  dplyr::group_by(overtop, Distrib..Slope....) %>%
+  right_join(filtered_data, by = c("Distrib..Slope.(%)")) %>% #Quoted?
+  dplyr::group_by(overtop, `Distrib..Slope.(%)`) %>%
   summarize(label = paste0(round(100*n()/slope_count,0),"%"),
             rel_head_dif = max(rel_head_dif)) %>%
-  dplyr::select(overtop,Distrib..Slope....,label, rel_head_dif) %>%
+  dplyr::select(overtop,`Distrib..Slope.(%)`,label, rel_head_dif) %>%
   dplyr::distinct()
 
 label_text$rel_head_dif <- max(label_text$rel_head_dif, na.rm = TRUE)
 
-ot_hdif_slope_bplot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = as.factor(Distrib..Slope....), fill = overtop)) +
+ot_hdif_slope_bplot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = as.factor(`Distrib..Slope.(%)`), fill = overtop)) +
                         geom_boxplot(size = 1.1, outlier.shape = NA) +
                         geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
                         xlab("Distribution Pipe Slope (%)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
@@ -989,7 +1000,7 @@ label_text$rel_head_dif <- max(label_text$rel_head_dif, na.rm = TRUE)
 
 hdif_inlet_ot_sz_bplot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = inlet_style, fill = overtop)) +
                           geom_boxplot(size = 1.1, outlier.shape = NA) +
-                          geom_point(aes(size = Sump.Depth..ft.),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
+                          geom_point(aes(size = `Sump.Depth.(ft)`),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
                           xlab("Inlet Type") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
                           ggtitle("Head Differential by Inlet Type") +
                           scale_color_manual(values = c("darkgray","black")) + 
@@ -1020,9 +1031,9 @@ hdif_inlet_ot_sz_bplot
 
 
 
-filtered_data$Sump.Depth..ft. <- round(filtered_data$Sump.Depth..ft.,2)
+filtered_data$`Sump.Depth.(ft)` <- round(filtered_data$`Sump.Depth.(ft)`,2)
 
-hdif_sump_ot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = as.factor(Sump.Depth..ft.), fill = overtop)) + 
+hdif_sump_ot <- ggplot(data = filtered_data, aes(y = rel_head_dif, x = as.factor(`Sump.Depth.(ft)`), fill = overtop)) + 
                 geom_boxplot(size = 1.1, outlier.shape = NA)+
                 geom_point(aes(size = eventdepth_in), shape = 21, alpha = 0.7) +
                 xlab("Sump Depth (ft)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
@@ -1097,7 +1108,7 @@ hdif_fbag_ot_bplot
 
 ## System Age plots
 
-hdif_vs_age <- ggplot(data = filtered_data) + geom_point(aes(x = Sys_Age/365, y = rel_head_dif, col = Total...Tree.Pits)) +
+hdif_vs_age <- ggplot(data = filtered_data) + geom_point(aes(x = Sys_Age/365, y = rel_head_dif, col = `Total.#.Tree.Pits`)) +
     xlab("System Age (years)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
     ggtitle("Head Differential by System Age") +  
     labs(color = "Number of Trees") +
@@ -1122,25 +1133,25 @@ hdif_vs_age
 #### 2.4 Head Dif, design storm only ####
 
 design_data <-filtered_data %>% 
-              dplyr::filter(eventdepth_in <= Storm.Size.Managed..in.)
+              dplyr::filter(eventdepth_in <= `Storm.Size.Managed.(in)`)
 
 # By pipe slope
 
 # by pipe slope labels
 label_text <- design_data %>%
-  dplyr::group_by(Distrib..Slope....) %>%
+  dplyr::group_by(`Distrib..Slope.(%)`) %>%
   summarize(slope_count = n()) %>%
   ungroup() %>%
-  right_join(design_data, by = c("Distrib..Slope....")) %>%
-  dplyr::group_by(overtop, Distrib..Slope....) %>%
+  right_join(design_data, by = c("Distrib..Slope.(%)")) %>% #quoted?
+  dplyr::group_by(overtop, `Distrib..Slope.(%)`) %>%
   summarize(label = paste0(round(100*n()/slope_count,0),"%"),
             rel_head_dif = max(rel_head_dif)) %>%
-  dplyr::select(overtop,Distrib..Slope....,label, rel_head_dif) %>%
+  dplyr::select(overtop,`Distrib..Slope.(%)`,label, rel_head_dif) %>%
   dplyr::distinct()
 
 label_text$rel_head_dif <- max(label_text$rel_head_dif, na.rm = TRUE)
 
-ot_hdif_slope_bplot_des <- ggplot(data = design_data, aes(y = rel_head_dif, x = as.factor(Distrib..Slope....), fill = overtop)) +
+ot_hdif_slope_bplot_des <- ggplot(data = design_data, aes(y = rel_head_dif, x = as.factor(`Distrib..Slope.(%)`), fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
   geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
   xlab("Distribution Pipe Slope (%)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
@@ -1371,7 +1382,7 @@ label_text$rel_head_dif <- max(label_text$rel_head_dif, na.rm = TRUE)
 
 hdif_inlet_ot_sz_bplot_des <- ggplot(data = design_data, aes(y = rel_head_dif, x = inlet_style, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
-  geom_point(aes(size = Sump.Depth..ft.),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
+  geom_point(aes(size = `Sump.Depth.(ft)`),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
   xlab("Inlet Type") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
   ggtitle("Head Differential by Inlet Type") +
   scale_color_manual(values = c("darkgray","black")) + 
@@ -1402,9 +1413,9 @@ hdif_inlet_ot_sz_bplot_des
 
 
 
-design_data$Sump.Depth..ft. <- round(design_data$Sump.Depth..ft.,2)
+design_data$`Sump.Depth.(ft)` <- round(design_data$`Sump.Depth.(ft)`,2)
 
-hdif_sump_ot_des <- ggplot(data = design_data, aes(y = rel_head_dif, x = as.factor(Sump.Depth..ft.), fill = overtop)) + 
+hdif_sump_ot_des <- ggplot(data = design_data, aes(y = rel_head_dif, x = as.factor(`Sump.Depth.(ft)`), fill = overtop)) + 
   geom_boxplot(size = 1.1, outlier.shape = NA)+
   geom_point(aes(size = eventdepth_in), shape = 21, alpha = 0.7) +
   xlab("Sump Depth (ft)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
@@ -1479,7 +1490,7 @@ hdif_fbag_ot_bplot_des
 
 ## System Age plots
 
-hdif_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, y = rel_head_dif, col = Total...Tree.Pits)) +
+hdif_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, y = rel_head_dif, col = `Total.#.Tree.Pits`)) +
   xlab("System Age (years)") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
   ggtitle("Head Differential by System Age") +  
   labs(color = "Number of Trees") +
@@ -1504,7 +1515,7 @@ hdif_vs_age_des
 #### 2.4.5 Normalized head dif, design storms only ####
 
 # By pipe slope
-slope_x <- design_data$Distrib..Slope.... == 0.5
+slope_x <- design_data$`Distrib..Slope.(%)` == 0.5
 slope_x <- factor(slope_x, ordered = TRUE, levels = c(TRUE, FALSE))
 design_data$Distribution_slope <- slope_x
 
@@ -1762,7 +1773,7 @@ label_text$norm_head <- max(label_text$norm_head, na.rm = TRUE)
 
 hdif_norm_inlet_ot_sz_bplot_des <- ggplot(data = design_data, aes(y = norm_head, x = inlet_style, fill = overtop)) +
   geom_boxplot(size = 1.1, outlier.shape = NA) +
-  geom_point(aes(size = Sump.Depth..ft.),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
+  geom_point(aes(size = `Sump.Depth.(ft)`),position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7) +
   xlab("Inlet Type") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
   ggtitle("Head Differential by Inlet Type") +
   scale_color_manual(values = c("darkgray","black")) + 
@@ -1793,9 +1804,9 @@ hdif_norm_inlet_ot_sz_bplot_des
 
 
 
-design_data$Sump.Depth..ft. <- round(design_data$Sump.Depth..ft.,2)
+design_data$`Sump.Depth.(ft)` <- round(design_data$`Sump.Depth.(ft)`,2)
 
-hdif_norm_sump_ot_des <- ggplot(data = design_data, aes(y = norm_head, x = as.factor(Sump.Depth..ft.), fill = overtop)) + 
+hdif_norm_sump_ot_des <- ggplot(data = design_data, aes(y = norm_head, x = as.factor(`Sump.Depth.(ft)`), fill = overtop)) + 
   geom_boxplot(size = 1.1, outlier.shape = NA)+
   geom_point(aes(size = eventdepth_in), shape = 21, alpha = 0.7) +
   xlab("Sump Depth (ft)") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
@@ -1870,7 +1881,7 @@ hdif_norm_fbag_ot_bplot_des
 
 ## System Age plots
 
-hdif_norm_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, y = norm_head, col = Total...Tree.Pits)) +
+hdif_norm_vs_age_des <- ggplot(data = design_data) + geom_point(aes(x = Sys_Age/365, y = norm_head, col = `Total.#.Tree.Pits`)) +
   xlab("System Age (years)") + ylab("Normalized Head Diff. at Peak Water Level in Green Inlet") +
   ggtitle("Head Differential by System Age") +  
   labs(color = "Number of Trees") +
@@ -1956,12 +1967,12 @@ ggsave(filename = paste0(bplot_design_folder,"/Head_dif_norm_vs_Age_design_storm
 #### 2.6 Drainage Area ####
 
 DA_plot <- ggplot(data = filtered_data, aes(x = drainage_area_sf, y = eventpeakintensity_inhr, col = overtop, size = overtop)) +
-           geom_point() + 
+           geom_point() +
            ylab("Event Peak Intensity (in/hr)") + xlab("Inlet Drainage Area (sf)") +
            scale_x_continuous(limits = c(0, 24000)) +
            ggtitle("Event Peak Intesity vs Inlet Drainage Area") +
-           # scale_color_manual(values = c("darkgray","black")) + 
-           # scale_fill_manual(values = wes_palettes$Moonrise2) + 
+           # scale_color_manual(values = c("darkgray","black")) +
+           # scale_fill_manual(values = wes_palettes$Moonrise2) +
   #add design storm values
   scale_color_manual(name = "Overtopping", values = c("steelblue3","firebrick3"), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
   scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
@@ -1995,7 +2006,7 @@ peak_int_perc <- 100*(sum(ot_filtered_data$eventpeakintensity_inhr > 2.5)/
                         length(ot_filtered_data$eventavgintensity_inhr))
 
 #percent exceeding qmax
-qmax <- sys_char %>% dplyr::select(smp_id, Max.Flow.w..Perforations..CFS.)
+qmax <- sys_char %>% dplyr::select(smp_id, `Max.Flow.w/.Perforations.(CFS)`)
 colnames(qmax) <- c("smp_id","qmax")
 qmax$qmax %<>% as.numeric()
 
@@ -2036,7 +2047,7 @@ gi_filter_summary <- filtered_data %>% group_by(ow_uid) %>% summarize(n = n(),
 gi_filter_summary <- gi_filter_summary %>% dplyr::mutate(overtop_perc = overtopping_count/n)
 
 
-write.csv(gi_filter_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_filter_summary.csv"))
+#write.csv(gi_filter_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_filter_summary.csv"))
 
 #### 3.0 STAT Model Creation - overtopping ####
 
@@ -2045,12 +2056,12 @@ write.csv(gi_filter_summary, file = paste0(folderpath, "/", Sys.Date(), "/gi_fil
 
 # Look at some distributions
 hist(filtered_data$eventpeakintensity_inhr)
-# take ln to normalize 
+# take ln to normalize
 hist(log(filtered_data$eventpeakintensity_inhr))
 
 #average intensity
 hist(filtered_data$eventavgintensity_inhr)
-# take ln to normalize 
+# take ln to normalize
 hist(log(filtered_data$eventavgintensity_inhr))
 
 
@@ -2126,11 +2137,11 @@ cor_plot <- filtered_data_by_site %>% dplyr::select(Overtop_pct,
                                                     Storm.Size.Managed..in.,
                                                     System.Drainage.Area..SF.,
                                                     Inlet.Drainage.Area..SF.,
-                                                    Max.Flow.w..Perforations..CFS.,
+                                                    `Max.Flow.w/.Perforations.(CFS)`,
                                                     Distrib..Length..FT.,
                                                     X..Distrib..Bends,
                                                     Distrib..Size.,
-                                                    Distrib..Slope....)
+                                                    `Distrib..Slope.(%)`)
 
 
 colnames(cor_plot) <- c("Overtop_pct",
@@ -2155,7 +2166,7 @@ write.table(cor_table, file = "clipboard")
 # png(filename = paste0(bplot_folder,"/correlation_plot.png"))
 
 
-# Make a smaller 
+# Make a smaller
 
 
 # Storm event correlation matrix
@@ -2179,7 +2190,7 @@ cor_plot_storm <- cor_plot_storm[!is.infinite(cor_plot_storm$`Peak Flow Rate\n(c
 
 chart.Correlation(cor_plot_storm,
                   cex.labels = 3,
-                  histogram = TRUE) 
+                  histogram = TRUE)
 
 
 jpeg(filename = paste0(bplot_folder,"/correlation_plot2.jpg"),
@@ -2198,15 +2209,15 @@ filtered_data_by_site$`Inlet Type` <- filtered_data_by_site$Trap
 filtered_data_by_site$`Inlet Type`[filtered_data_by_site$`Inlet Type` == TRUE] <- "Old (with Trap)"
 filtered_data_by_site$`Inlet Type`[filtered_data_by_site$`Inlet Type` == FALSE] <- "New (without Trap)"
 
-  
-site_inlet_type_plot <- ggplot(data = filtered_data_by_site ,aes(y = Overtop_pct, x = `Inlet Type`, fill = `Inlet Type`)) + 
+
+site_inlet_type_plot <- ggplot(data = filtered_data_by_site ,aes(y = Overtop_pct, x = `Inlet Type`, fill = `Inlet Type`)) +
                             geom_boxplot() +
                             geom_point(position=position_jitterdodge(jitter.width = 0.1),
                                        aes(fill = `Inlet Type`), shape = 21, alpha = 0.7, size = 3) +
                             ylab("Percent of Storm Events with Overtopping (%)") +
                             ggtitle("Percent Overtopping by Inlet Type") +
-                            scale_color_manual(values = c("darkgray","black")) + 
-                            scale_fill_manual(values = wes_palettes$Moonrise2) + 
+                            scale_color_manual(values = c("darkgray","black")) +
+                            scale_fill_manual(values = wes_palettes$Moonrise2) +
   #house style plotting
   ggplot2::theme(
     #text = element_text(size = rel(2)), #size previously set to 16
@@ -2214,7 +2225,7 @@ site_inlet_type_plot <- ggplot(data = filtered_data_by_site ,aes(y = Overtop_pct
     axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
     axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
     axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
-    title = ggplot2::element_text(size = ggplot2::rel(1.3), color = "black"), 
+    title = ggplot2::element_text(size = ggplot2::rel(1.3), color = "black"),
     panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
     panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
     panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
@@ -2229,145 +2240,145 @@ if(plot_save == TRUE){
   ggsave(filename = paste0(bplot_folder,"/Overtopping_Percent_vs_Inlet_Type.png"), plot = site_inlet_type_plot, width = 7.5, height = 6)
 }
 
-#binomial ANOVA
+# #binomial ANOVA
+# 
+# trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
+# 
+# trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
+# 
+# summary(trap_model)
 
-trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
-
-trap_model <- glmer(data = filtered_data, overtop~Trap + (1|ow_uid), family = binomial)
-
-summary(trap_model)
-
-# 3.4 Predictive models
-
-# Turn each monitoring location into a factor
-filtered_data$ow_uid  <- filtered_data$ow_uid %>% as.factor()
-
-
-# model 1
-model1 <- glm(data = filtered_data, overtop~ Trap + eventpeakintensity_inhr, family = binomial)
-
-hist(model1$residuals)
-qqnorm(model1$residuals)
-
-# model 2
-model2 <- lm(overtop ~ Trap + eventpeakintensity_inhr, data = filtered_data)
-
-anova(model2)
-hist(model2$residuals)
-shapiro.test(model2$residuals)
-qqnorm(model2$residuals)
-
-# model j1
-
-
-
-# model j2
-modelj1 <- lmer(overtop ~ Trap + (1|ow_uid), data = filtered_data)
-
-# model 3
-model3 <- lm(overtop ~ Trap, data = filtered_data)
-
-anova(model3)
-hist(model3$residuals)
-anova(model3)
-qqnorm(model3$residuals)
-
-
-# model 4
-model4 <- glm(data = filtered_data, overtop~ Trap + log_peak_int, family = binomial)
-
-hist(model4$residuals)
-qqnorm(model4$residuals)
-shapiro.test(model4$residuals)
-
-
-# model 5
-
-model5 <- lm(overtop ~ Trap + log_peak_int, data = filtered_data)
-
-anova(model5)
-hist(model5$residuals)
-shapiro.test(model5$residuals)
-qqnorm(model5$residuals)
-
-# model 6
-
-model6 <- lm(overtop ~ Trap + log_avg_int, data = filtered_data)
-
-anova(model6)
-hist(model6$residuals)
-shapiro.test(model6$residuals)
-qqnorm(model6$residuals)
-
-# model 7
-model7 <- lm(overtop ~ log_avg_int, data = filtered_data)
-
-anova(model7)
-hist(model7$residuals)
-shapiro.test(model7$residuals)
-qqnorm(model7$residuals); qqline(model7$residuals)
-
-# model 8
-model8 <- lm(overtop ~ log_peak_int, data = filtered_data)
-
-anova(model8)
-hist(model8$residuals)
-shapiro.test(model8$residuals)
-qqnorm(model8$residuals); qqline(model8$residuals)
-
-# model 9
-model9 <- lm(overtop ~ log_peak_int + Trap + last_jet,data = filtered_data)
-
-anova(model9) # ANOVA results show days since jetting being insignificant
-hist(model9$residuals)
-shapiro.test(model9$residuals)
-qqnorm(model9$residuals); qqline(model9$residuals)
-summary(model9)
-
-# model 10
-# ow_uid as character to apply clustering as a random effects variable
-filtered_data$ow_uid <- filtered_data$ow_uid %>% as.character()
-
-# rescale variables
-hist(filtered_data$log_peak_int)
-hist(scale(filtered_data$log_peak_int))
-
-
-model10 <- glmer(overtop ~ log_qpeak + Trap + sqrt_last_jet + (1|ow_uid), data = filtered_data, family = binomial())
-
-model10_residuals <- resid(model10)
-anova(model10)
-hist(model10_residuals)
-shapiro.test(model10_residuals)
-qqnorm(model10_residuals); qqline(model10_residuals)
-
-#model 11
-
-#scale inlet drainage area
-filtered_data$scl_inl_DA <- scale(filtered_data$Inlet.Drainage.Area..SF.)
-
-model11 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + Distrib..Size. + (1|ow_uid), data = filtered_data, family = binomial())
-
-model11_residuals <- resid(model11)
-anova(model11)
-hist(model11_residuals)
-shapiro.test(model11_residuals)
-qqnorm(model11_residuals); qqline(model11_residuals)
-summary(model11)
-
-
-#model12 (selected model)
-
-model12 <- glmer(overtop ~  log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
-
-model12_residuals <- resid(model12)
-anova(model12)
-hist(model12_residuals)
-shapiro.test(model12_residuals)
-qqnorm(model12_residuals); abline(a = 0, b = 1)
-summary(model12)
-
-
-# overtopping percentage vs. max distribution pipe flow way
-
-plot(filtered_data_by_site$Dist.Pipe.Head..ft.,filtered_data_by_site$Overtop_pct)
+# # 3.4 Predictive models
+# 
+# # Turn each monitoring location into a factor
+# filtered_data$ow_uid  <- filtered_data$ow_uid %>% as.factor()
+# 
+# 
+# # model 1
+# model1 <- glm(data = filtered_data, overtop~ Trap + eventpeakintensity_inhr, family = binomial)
+# 
+# hist(model1$residuals)
+# qqnorm(model1$residuals)
+# 
+# # model 2
+# model2 <- lm(overtop ~ Trap + eventpeakintensity_inhr, data = filtered_data)
+# 
+# anova(model2)
+# hist(model2$residuals)
+# shapiro.test(model2$residuals)
+# qqnorm(model2$residuals)
+# 
+# # model j1
+# 
+# 
+# 
+# # model j2
+# modelj1 <- lmer(overtop ~ Trap + (1|ow_uid), data = filtered_data)
+# 
+# # model 3
+# model3 <- lm(overtop ~ Trap, data = filtered_data)
+# 
+# anova(model3)
+# hist(model3$residuals)
+# anova(model3)
+# qqnorm(model3$residuals)
+# 
+# 
+# # model 4
+# model4 <- glm(data = filtered_data, overtop~ Trap + log_peak_int, family = binomial)
+# 
+# hist(model4$residuals)
+# qqnorm(model4$residuals)
+# shapiro.test(model4$residuals)
+# 
+# 
+# # model 5
+# 
+# model5 <- lm(overtop ~ Trap + log_peak_int, data = filtered_data)
+# 
+# anova(model5)
+# hist(model5$residuals)
+# shapiro.test(model5$residuals)
+# qqnorm(model5$residuals)
+# 
+# # model 6
+# 
+# model6 <- lm(overtop ~ Trap + log_avg_int, data = filtered_data)
+# 
+# anova(model6)
+# hist(model6$residuals)
+# shapiro.test(model6$residuals)
+# qqnorm(model6$residuals)
+# 
+# # model 7
+# model7 <- lm(overtop ~ log_avg_int, data = filtered_data)
+# 
+# anova(model7)
+# hist(model7$residuals)
+# shapiro.test(model7$residuals)
+# qqnorm(model7$residuals); qqline(model7$residuals)
+# 
+# # model 8
+# model8 <- lm(overtop ~ log_peak_int, data = filtered_data)
+# 
+# anova(model8)
+# hist(model8$residuals)
+# shapiro.test(model8$residuals)
+# qqnorm(model8$residuals); qqline(model8$residuals)
+# 
+# # model 9
+# model9 <- lm(overtop ~ log_peak_int + Trap + last_jet,data = filtered_data)
+# 
+# anova(model9) # ANOVA results show days since jetting being insignificant
+# hist(model9$residuals)
+# shapiro.test(model9$residuals)
+# qqnorm(model9$residuals); qqline(model9$residuals)
+# summary(model9)
+# 
+# # model 10
+# # ow_uid as character to apply clustering as a random effects variable
+# filtered_data$ow_uid <- filtered_data$ow_uid %>% as.character()
+# 
+# # rescale variables
+# hist(filtered_data$log_peak_int)
+# hist(scale(filtered_data$log_peak_int))
+# 
+# 
+# model10 <- glmer(overtop ~ log_qpeak + Trap + sqrt_last_jet + (1|ow_uid), data = filtered_data, family = binomial())
+# 
+# model10_residuals <- resid(model10)
+# anova(model10)
+# hist(model10_residuals)
+# shapiro.test(model10_residuals)
+# qqnorm(model10_residuals); qqline(model10_residuals)
+# 
+# #model 11
+# 
+# #scale inlet drainage area
+# filtered_data$scl_inl_DA <- scale(filtered_data$Inlet.Drainage.Area..SF.)
+# 
+# model11 <- glmer(overtop ~ log_qpeak + sqrt_last_jet + scl_inl_DA + Distrib..Size. + (1|ow_uid), data = filtered_data, family = binomial())
+# 
+# model11_residuals <- resid(model11)
+# anova(model11)
+# hist(model11_residuals)
+# shapiro.test(model11_residuals)
+# qqnorm(model11_residuals); qqline(model11_residuals)
+# summary(model11)
+# 
+# 
+# #model12 (selected model)
+# 
+# model12 <- glmer(overtop ~  log_qpeak + sqrt_last_jet + scl_inl_DA + Trap + (1|ow_uid), data = filtered_data, family = binomial())
+# 
+# model12_residuals <- resid(model12)
+# anova(model12)
+# hist(model12_residuals)
+# shapiro.test(model12_residuals)
+# qqnorm(model12_residuals); abline(a = 0, b = 1)
+# summary(model12)
+# 
+# 
+# # overtopping percentage vs. max distribution pipe flow way
+# 
+# plot(filtered_data_by_site$Dist.Pipe.Head..ft.,filtered_data_by_site$Overtop_pct)
