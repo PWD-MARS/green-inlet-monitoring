@@ -1,0 +1,121 @@
+---
+title: "Green Inlet Monitoring Verification"
+author: "Monica Gucciardi"
+date: "2025-07-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+library(knitr)
+
+#Database Stuff
+library(pool)
+library(RPostgres)
+library(pwdgsi)
+
+#Other stuff
+library(digest)
+options(stringsAsFactors=FALSE)
+
+marsDBCon <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "mars_prod",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
+```
+
+
+## Introduction
+This is a reimplementation of the green inlet monitoring data caclulation project, originally by Brian Cruice, in service of his and Johanna Batterton's investigation into hydraulic performance of Philadelphia's green inlets. This analysis will recalculate and replot the analyses performed for their original presentation on this issue at VUSP 2024. The analysis will make use of all updated data collected since that time - the VUSP analysis limited itself to data collected before 2023.
+
+```{r Pulling site metrics and assembling calculation ranges, echo = FALSE}
+wells <- dbGetQuery(marsDBCon, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid from fieldwork.tbl_ow o 
+                    left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
+                    where o.ow_suffix like 'GI%'
+                      and o.smp_id in ('1-1-1', '1-3-1', '171-1-1', '171-2-1', '179-5-1', '439-1-1', '488-5-1', '1006-1-1')")
+
+wells <- filter(wells, ow_uid != 1077) #179-5-1 GI2 was not monitored
+
+#Pulling system characteristics for calculations
+snaps <- marsFetchSMPSnapshot(marsDBCon, wells$smp_id, wells$ow_suffix, "today")
+
+#Pulling sumps directly to verify
+sumpquery <- paste0("select o.ow_uid, o.smp_id, o.ow_suffix, l.sumpdepth_choice, v.sumpdepth_ft from fieldwork.tbl_ow o 
+left join fieldwork.viw_ow_sumpdepth v on o.ow_uid = v.ow_uid
+left join fieldwork.tbl_sumpdepth_lookup l on l.sumpdepth_lookup_uid = v.sumpdepth_lookup_uid
+where o.ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
+
+sumps <- dbGetQuery(marsDBCon, sumpquery)
+
+#Overflow calculations in green inlets require the cap-to-hook and hook-to-sensor measurements
+#The value we want is called deployment_depth_ft in this view - the sum of the CTH and HTS measurements
+cthquery <- paste0("select ow_uid, well_depth_ft, start_dtime, end_dtime, deployment_depth_ft
+                   from fieldwork.viw_ow_plus_measurements where ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
+#Don't need to select by start and end time - we have only one measurement per well in this case.
+cth <- dbGetQuery(marsDBCon, cthquery)
+
+#Sensor monitoring range
+boundaryquery <- paste0("select ow_uid, min(dtime) as mintime, max(dtime) as maxtime from data.tbl_ow_leveldata_raw
+              where ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')
+              group by ow_uid')
+boundaries <- dbGetQuery(marsDBCon, boundaryquery)
+
+
+#Unified metrics table for GI-type well calculations
+calctable <- left_join(wells, cth, by = "ow_uid") %>%
+  select(-start_dtime, -end_dtime) %>%
+  left_join(boundaries, by = "ow_uid")
+```
+
+## Green Inlet Overtopping
+
+Green inlet overtopping is measured relative to the deployment depth of the sensor. The deployment depth is the sum of the measurement between the inlet grate and the sensor's hook (cap-to-hook) and the measurement between the sensor's hook and the sensor's aperture (hook-to-sensor). This value is stored in `fieldwork.viw_ow_plus_measurements` and is listed here.
+
+`r kable(calctable)`
+
+```{r pressure, echo=FALSE}
+otmetrics <- data.frame(NULL)
+for(i in 1:nrow(calctable)){
+#for(i in 1){
+ sitelevel <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_ow_leveldata_raw where 
+                          ow_uid = ",  calctable$ow_uid[i], 
+                                            "and dtime >= '", calctable$mintime[i], "'",
+                                            #"and dtime <= '", min(ymd("2023-01-01", tz = "America/New_York"), calctable$maxtime[i]), "'"))
+                                            "and dtime <= '", calctable$maxtime[i], "'"))
+  
+ siteevents <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_radar_event where
+                                             radar_uid = ", calctable$radar_uid[i])) %>%
+    filter(eventdatastart >= calctable$mintime[i],
+           #eventdataend <= min(ymd("2023-01-01", tz = "America/New_York"), calctable$maxtime[i]))
+           eventdataend <= calctable$maxtime[i])
+  
+  for(j in 1:nrow(siteevents)){
+    eventdata <- filter(sitelevel, dtime >= siteevents$eventdatastart[j], dtime <= siteevents$eventdataend[j])
+    eventmetric <- data.frame(ow_uid = calctable$ow_uid[i], 
+                              radar_event_uid = siteevents$radar_event_uid[j], 
+                              eventdatastart = siteevents$eventdatastart[j], 
+                              eventdataend = siteevents$eventdataend[j],
+                              overtop = marsOvertoppingCheck_bool(eventdata$level_ft, calctable$deployment_depth_ft[i]))
+    otmetrics <- rbind(otmetrics, eventmetric)
+  }
+}
+
+otmetrics %>% filter(overtop == "TRUE" | overtop == "FALSE") %>%
+  group_by(ow_uid) %>%
+  summarize(events = n(),
+            overtopping = sum(as.logical(overtop)),
+            overtopping_percent = sum(as.logical(overtop))/n() * 100) %>% left_join(calctable) %>% 
+  select(smp_id, ow_suffix, events, overtopping, overtopping_percent) %>%
+  kable
+
+```
+
