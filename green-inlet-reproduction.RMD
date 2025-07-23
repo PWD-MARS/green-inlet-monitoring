@@ -37,7 +37,7 @@ marsDBCon <- tryCatch({
 ## Introduction
 This is a reimplementation of the green inlet monitoring data caclulation project, originally by Brian Cruice, in service of his and Johanna Batterton's investigation into hydraulic performance of Philadelphia's green inlets. This analysis will recalculate and replot the analyses performed for their original presentation on this issue at VUSP 2024. The analysis will make use of all updated data collected since that time - the VUSP analysis limited itself to data collected before 2023.
 
-```{r Pulling site metrics and assembling calculation ranges, echo = FALSE}
+```{r Pulling Green Inlet site metrics and assembling calculation ranges, echo = FALSE}
 wells <- dbGetQuery(marsDBCon, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid from fieldwork.tbl_ow o 
                     left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
                     where o.ow_suffix like 'GI%'
@@ -74,6 +74,24 @@ boundaries <- dbGetQuery(marsDBCon, boundaryquery)
 calctable <- left_join(wells, cth, by = "ow_uid") %>%
   select(-start_dtime, -end_dtime) %>%
   left_join(boundaries, by = "ow_uid")
+
+#Date Overrides
+#System 1-1 short circuiting observed on 11/13/2020, so cut data off here
+calctable$maxtime[calctable$smp_id == '1-1-1'] <- ymd_hms('2020-11-13 00:00:00', tz = "America/New_York")
+
+#System 439-1-1 short circuiting observed on 2022-01-14, so cut data off here
+calctable$maxtime[calctable$smp_id == '439-1-1'] <- ymd_hms('2022-01-14 00:00:00', tz = "America/New_York")
+
+
+#System 179-5 had its distribution pipe capped for a period of two months
+exclusions <- calctable %>%
+  select(ow_uid, smp_id, ow_suffix, mintime, maxtime) %>%
+  mutate(mintime = NA_Date_,
+         maxtime = NA_Date_)
+
+exclusions$mintime[exclusions$smp_id == '179-5-1'] <- ymd_hms('2021-11-08 00:00:00',  tz = "America/New_York")
+exclusions$maxtime[exclusions$smp_id == '179-5-1'] <- ymd_hms('2021-12-30 00:00:00',  tz = "America/New_York")
+
 ```
 
 ## Green Inlet Overtopping
@@ -82,40 +100,59 @@ Green inlet overtopping is measured relative to the deployment depth of the sens
 
 `r kable(calctable)`
 
-```{r pressure, echo=FALSE}
+```{r Green Inlet Overtopping, echo=FALSE}
 otmetrics <- data.frame(NULL)
 for(i in 1:nrow(calctable)){
 #for(i in 1){
+
+ #Pull the Green Inlet data for the site
  sitelevel <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_ow_leveldata_raw where 
                           ow_uid = ",  calctable$ow_uid[i], 
                                             "and dtime >= '", calctable$mintime[i], "'",
-                                            #"and dtime <= '", min(ymd("2023-01-01", tz = "America/New_York"), calctable$maxtime[i]), "'"))
                                             "and dtime <= '", calctable$maxtime[i], "'"))
-  
+
+ #Pull the rain events for the site
  siteevents <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_radar_event where
                                              radar_uid = ", calctable$radar_uid[i])) %>%
     filter(eventdatastart >= calctable$mintime[i],
-           #eventdataend <= min(ymd("2023-01-01", tz = "America/New_York"), calctable$maxtime[i]))
            eventdataend <= calctable$maxtime[i])
+ 
+ #Does this GI have an exclusion date range?
+ excludeflag <- !is.na(exclusions$mintime[exclusions$ow_uid == calctable$ow_uid[i]])
+ if(excludeflag == TRUE){
+   exclude_min <- exclusions$mintime[exclusions$ow_uid == calctable$ow_uid[i]]
+   exclude_max <- exclusions$maxtime[exclusions$ow_uid == calctable$ow_uid[i]]
+   
+   sitelevel <- filter(sitelevel, dtime < exclude_min | dtime > exclude_max)
+   siteevents <- filter(siteevents, eventdatastart < exclude_min | eventdatastart > exclude_max)
+ }
   
   for(j in 1:nrow(siteevents)){
     eventdata <- filter(sitelevel, dtime >= siteevents$eventdatastart[j], dtime <= siteevents$eventdataend[j])
+    
+    #If there was no data collected for this event, skip it
+    if(nrow(eventdata) == 0){
+      next
+    }
+    
     eventmetric <- data.frame(ow_uid = calctable$ow_uid[i], 
                               radar_event_uid = siteevents$radar_event_uid[j], 
                               eventdatastart = siteevents$eventdatastart[j], 
                               eventdataend = siteevents$eventdataend[j],
+                              maxlevel_ft = max(eventdata$level_ft), #Store this for the head differential calculations later
                               overtop = marsOvertoppingCheck_bool(eventdata$level_ft, calctable$deployment_depth_ft[i]))
     otmetrics <- rbind(otmetrics, eventmetric)
+    
   }
 }
 
-otmetrics %>% filter(overtop == "TRUE" | overtop == "FALSE") %>%
+otsummary <- otmetrics %>% filter(overtop == "TRUE" | overtop == "FALSE") %>%
   group_by(ow_uid) %>%
   summarize(events = n(),
             overtopping = sum(as.logical(overtop)),
             overtopping_percent = sum(as.logical(overtop))/n() * 100) %>% left_join(calctable) %>% 
-  select(smp_id, ow_suffix, events, overtopping, overtopping_percent) %>%
-  kable
+  select(smp_id, ow_suffix, events, overtopping, overtopping_percent)
 
 ```
 
+`r kable(otsummary)`
