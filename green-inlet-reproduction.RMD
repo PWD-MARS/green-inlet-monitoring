@@ -38,40 +38,29 @@ marsDBCon <- tryCatch({
 This is a reimplementation of the green inlet monitoring data caclulation project, originally by Brian Cruice, in service of his and Johanna Batterton's investigation into hydraulic performance of Philadelphia's green inlets. This analysis will recalculate and replot the analyses performed for their original presentation on this issue at VUSP 2024. The analysis will make use of all updated data collected since that time - the VUSP analysis limited itself to data collected before 2023.
 
 ```{r Pulling Green Inlet site metrics and assembling calculation ranges, echo = FALSE}
-wells <- dbGetQuery(marsDBCon, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid from fieldwork.tbl_ow o 
+inlets <- dbGetQuery(marsDBCon, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid from fieldwork.tbl_ow o 
                     left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
                     where o.ow_suffix like 'GI%'
                       and o.smp_id in ('1-1-1', '1-3-1', '171-1-1', '171-2-1', '179-5-1', '439-1-1', '488-5-1', '1006-1-1')")
 
-wells <- filter(wells, ow_uid != 1077) #179-5-1 GI2 was not monitored
-
-#Pulling system characteristics for calculations
-snaps <- marsFetchSMPSnapshot(marsDBCon, wells$smp_id, wells$ow_suffix, "today")
-
-#Pulling sumps directly to verify
-sumpquery <- paste0("select o.ow_uid, o.smp_id, o.ow_suffix, l.sumpdepth_choice, v.sumpdepth_ft from fieldwork.tbl_ow o 
-left join fieldwork.viw_ow_sumpdepth v on o.ow_uid = v.ow_uid
-left join fieldwork.tbl_sumpdepth_lookup l on l.sumpdepth_lookup_uid = v.sumpdepth_lookup_uid
-where o.ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
-
-sumps <- dbGetQuery(marsDBCon, sumpquery)
+inlets <- filter(inlets, ow_uid != 1077) #179-5-1 GI2 was not monitored
 
 #Overflow calculations in green inlets require the cap-to-hook and hook-to-sensor measurements
 #The value we want is called deployment_depth_ft in this view - the sum of the CTH and HTS measurements
 cthquery <- paste0("select ow_uid, well_depth_ft, start_dtime, end_dtime, deployment_depth_ft
-                   from fieldwork.viw_ow_plus_measurements where ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
+                   from fieldwork.viw_ow_plus_measurements where ow_uid in (", paste(inlets$ow_uid, collapse = ", "), ')')
 #Don't need to select by start and end time - we have only one measurement per well in this case.
 cth <- dbGetQuery(marsDBCon, cthquery)
 
 #Sensor monitoring range
 boundaryquery <- paste0("select ow_uid, min(dtime) as mintime, max(dtime) as maxtime from data.tbl_ow_leveldata_raw
-              where ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')
+              where ow_uid in (", paste(inlets$ow_uid, collapse = ", "), ')
               group by ow_uid')
 boundaries <- dbGetQuery(marsDBCon, boundaryquery)
 
 
 #Unified metrics table for GI-type well calculations
-calctable <- left_join(wells, cth, by = "ow_uid") %>%
+calctable <- left_join(inlets, cth, by = "ow_uid") %>%
   select(-start_dtime, -end_dtime) %>%
   left_join(boundaries, by = "ow_uid")
 
@@ -91,6 +80,27 @@ exclusions <- calctable %>%
 
 exclusions$mintime[exclusions$smp_id == '179-5-1'] <- ymd_hms('2021-11-08 00:00:00',  tz = "America/New_York")
 exclusions$maxtime[exclusions$smp_id == '179-5-1'] <- ymd_hms('2021-12-30 00:00:00',  tz = "America/New_York")
+
+```
+
+```{r Pulling Corresponding OW metrics and ranges, echo = FALSE}
+wells <- dbGetQuery(marsDBCon, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid from fieldwork.tbl_ow o 
+                    left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
+                    where o.ow_suffix = 'OW1'
+                      and o.smp_id in ('1-1-1', '1-3-1', '171-1-1', '171-2-1', '179-5-1', '439-1-1', '488-5-1', '1006-1-1')")
+
+#Pulling sumps directly
+sumpquery <- paste0("select o.ow_uid, o.smp_id, o.ow_suffix, l.sumpdepth_choice, v.sumpdepth_ft from fieldwork.tbl_ow o 
+left join fieldwork.viw_ow_sumpdepth v on o.ow_uid = v.ow_uid
+left join fieldwork.tbl_sumpdepth_lookup l on l.sumpdepth_lookup_uid = v.sumpdepth_lookup_uid
+where o.ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
+
+sumps <- dbGetQuery(marsDBCon, sumpquery)
+
+#Assemble the corresponding metrics table for calculations
+wellboundaries <- select(calctable, smp_id, mintime, maxtime)
+welltable <- left_join(wells, wellboundaries, by = "smp_id") %>%
+  left_join(sumps, by = c("ow_uid", "smp_id", "ow_suffix"))
 
 ```
 
