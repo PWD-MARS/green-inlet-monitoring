@@ -95,7 +95,7 @@ left join fieldwork.viw_ow_sumpdepth v on o.ow_uid = v.ow_uid
 left join fieldwork.tbl_sumpdepth_lookup l on l.sumpdepth_lookup_uid = v.sumpdepth_lookup_uid
 where o.ow_uid in (", paste(wells$ow_uid, collapse = ", "), ')')
 
-sumps <- dbGetQuery(marsDBCon, sumpquery)
+sumps <- dbGetQuery(marsDBCon, sumpquery) %>% distinct
 
 #Assemble the corresponding metrics table for calculations
 wellboundaries <- select(calctable, smp_id, mintime, maxtime)
@@ -110,7 +110,7 @@ Green inlet overtopping is measured relative to the deployment depth of the sens
 
 `r kable(calctable)`
 
-```{r Green Inlet Overtopping, echo=FALSE}
+```{r Green Inlet Overtopping, echo=FALSE, include = FALSE}
 otmetrics <- data.frame(NULL)
 for(i in 1:nrow(calctable)){
 #for(i in 1){
@@ -150,19 +150,83 @@ for(i in 1:nrow(calctable)){
                               eventdatastart = siteevents$eventdatastart[j], 
                               eventdataend = siteevents$eventdataend[j],
                               maxlevel_ft = max(eventdata$level_ft), #Store this for the head differential calculations later
+                              maxlevel_dtime = eventdata$dtime[eventdata$level_ft == max(eventdata$level_ft)], #Ditto
                               overtop = marsOvertoppingCheck_bool(eventdata$level_ft, calctable$deployment_depth_ft[i]))
     otmetrics <- rbind(otmetrics, eventmetric)
     
   }
 }
 
-otsummary <- otmetrics %>% filter(overtop == "TRUE" | overtop == "FALSE") %>%
+otsummary <- otmetrics %>%
   group_by(ow_uid) %>%
   summarize(events = n(),
             overtopping = sum(as.logical(overtop)),
-            overtopping_percent = sum(as.logical(overtop))/n() * 100) %>% left_join(calctable) %>% 
-  select(smp_id, ow_suffix, events, overtopping, overtopping_percent)
+            overtopping_pct = sum(as.logical(overtop))/n() * 100) %>% left_join(calctable, by = "ow_uid") %>% 
+  select(smp_id, ow_suffix, events, overtopping, overtopping_pct)
 
 ```
 
 `r kable(otsummary)`
+
+
+```{r Head differential calculations, echo = FALSE, include = FALSE}
+#Find the corresponding level in the OW when the GI was at its peak
+hdmetrics <- data.frame(NULL)
+
+for(i in 1:nrow(welltable)){
+  well_smp <- welltable$smp_id[i]
+  well_uid <- welltable$ow_uid[i]
+  
+  inlet_uid <- filter(calctable, smp_id == well_smp) %>% pull(ow_uid)
+  inlet_smp <- filter(calctable, ow_uid == inlet_uid) %>% pull(smp_id) #just to verify
+  
+  #Pull the OW data for the site
+  welllevel <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_ow_leveldata_raw where 
+                          ow_uid = ",  well_uid, 
+                                            "and dtime >= '", welltable$mintime[i], "'",
+                                            "and dtime <= '", welltable$maxtime[i], "'"))
+  
+  siteevents <- filter(otmetrics, ow_uid == inlet_uid) %>%
+    mutate(welllevel_ft = NA, 
+           welldtime = as.POSIXct(NA, tz = "America/New_York"), #Ask me how I know this needs an explicit time zone ( TT_TT)
+           difftime = NA)
+    
+
+  for(j in 1:nrow(siteevents)){
+    eventlevel <- filter(welllevel, between(dtime, siteevents$eventdatastart[j], siteevents$eventdataend[j]))
+    
+    if(nrow(eventlevel) == 0){
+      # print(paste(well_smp, "OW1 has no data for the period when", inlet_smp, "GI1 has data. That range is", 
+      #             siteevents$eventdatastart[j], "to", siteevents$eventdataend[j]))
+      next
+    }
+    
+    #The inlet and OW might have different sample periods, so time at which the inlet peaks might not be in eventlevel$dtime
+    #So we instead find the closest time by taking the difference between eventlevel$dtime and siteevents$maxlevel_dtime
+    diffs <- abs(eventlevel$dtime - siteevents$maxlevel_dtime[j])
+    well_maxindex <- which.min(diffs)
+    
+    siteevents$welldtime[j] <- eventlevel$dtime[well_maxindex]
+    siteevents$welllevel_ft[j] <- eventlevel$level_ft[well_maxindex]
+    siteevents$difftime[j] <- diffs[well_maxindex]
+    siteevents$headdiff_ft[j] <- siteevents$maxlevel_ft[j] - siteevents$welllevel_ft[well_maxindex]
+
+  }
+  
+  hdmetrics <- rbind(hdmetrics, siteevents)
+}
+
+hdaverages <- hdmetrics %>%
+  group_by(ow_uid, overtop) %>%
+  summarize(realevents = sum(!is.na(difftime)),
+            na_events = sum(is.na(difftime)),
+            totalevents = n(),
+            avgdiff_ft = round(mean(headdiff_ft, na.rm = TRUE), 2)) %>%
+  ungroup %>%
+  left_join(calctable, by = "ow_uid") %>%
+  select(ow_uid, smp_id, overtop, totalevents, realevents, na_events, avgdiff_ft) %>%
+  left_join(otsummary, by = "smp_id")
+
+```
+
+`r kable(hdaverages)`
