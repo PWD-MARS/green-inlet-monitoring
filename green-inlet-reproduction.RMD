@@ -474,7 +474,7 @@ headdiffs <- hd_elevs %>%
 
 ```
 
-```{r Plots!, echo = FALSE}
+```{r Plots!, echo = FALSE, include = FALSE}
 #Several plots require rain event metadata that we have discarded by now
 rain_event_metadata <- dbGetQuery(marsDBCon, "select radar_uid, radar_event_uid, eventdatastart, eventdataend, eventpeakintensity_inhr, eventdepth_in, eventavgintensity_inhr from data.tbl_radar_event") %>%
   filter(eventdatastart >= min(calctable$mintime), 
@@ -494,16 +494,18 @@ headdiffs_villanova <- filter(headdiffs_plot, eventdatastart < ymd('2023-01-01',
 villanova_table <- headdiffs_villanova %>%
   group_by(ow_uid) %>%
   summarize(events = n(),
+            meandepth_in = mean(eventdepth_in),
             overtopping = sum(as.logical(overtop)),
             overtopping_pct = sum(as.logical(overtop))/n()) %>% left_join(calctable, by = "ow_uid") %>% 
-  select(smp_id, ow_suffix, events, overtopping, overtopping_pct)
+  select(smp_id, meandepth_in, events, overtopping, overtopping_pct)
 
-full_table <- headdiffs %>%
+full_table <- headdiffs_plot %>%
   group_by(ow_uid) %>%
   summarize(events = n(),
+            meandepth_in = mean(eventdepth_in),
             overtopping = sum(as.logical(overtop)),
             overtopping_pct = sum(as.logical(overtop))/n()) %>% left_join(calctable, by = "ow_uid") %>% 
-  select(smp_id, ow_suffix, events, overtopping, overtopping_pct)
+  select(smp_id, meandepth_in, events, overtopping, overtopping_pct)
 
 
 #Pipe jetting dates
@@ -579,7 +581,7 @@ for(i in 1:nrow(calctable)){
 ```
 
 
-```{r More Plots!}
+```{r More Plots!, echo = FALSE, include = FALSE}
 headdiffs_plot <- left_join(headdiffs, rain_event_metadata, by = "radar_event_uid") %>%
   mutate(season = season_fx(eventdatastart)) %>% #And seasons
   left_join(trap_status) %>% #and inlet trap metadata
@@ -730,8 +732,6 @@ ot_hdif_norm_system_bplot_des
 ggsave(filename = paste0("plots/Head_dif_vs_Inlet_type.png"), plot = hdif_inlet_ot_bplot, width = 10, height = 8)
 ggsave(filename = paste0("plots/Head_dif_vs_slope_design_storms.png"), plot = ot_hdif_norm_slope_bplot_des, width = 10, height = 8)
 ggsave(filename = paste0("plots/Head_dif_vs_system_design_storms.png"), plot = ot_hdif_norm_system_bplot_des, width = 10, height = 8)
-
-
 
 
 ```
