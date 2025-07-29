@@ -59,7 +59,7 @@ season_fx <- function(date_time){
 
 ```{r func}
 overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates = NULL, event_descriptions = NULL){
-  browser()
+  #Sbrowser()
   #clean dates for x-axis
   # date_formats <- c(guess_formats(data$eventdatastart, "mdy HMS"),
   #                   guess_formats(data$eventdatastart, "mdy"))
@@ -70,8 +70,9 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
   min_date <- min(data$eventdatastart)
   max_date <- max(data$eventdatastart)
   
+  data$overtop <- as.logical(data$overtop)
   
-  event_dates <- event_dates %>% lubridate::mdy
+  event_dates <- event_dates %>% mdy %>% force_tz(tzone = "America/New_York")
   
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
@@ -102,7 +103,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
     
     if(length(event_dates) > 0 & length(event_descriptions) > 0){
       for(i in 1:length(event_dates)){
-        plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = wes_palettes$Royal1[4], size = 1.1, linetype = "dashed") +
+        plot_x <- plot_x + geom_vline(xintercept = event_dates[i], color = wes_palettes$Royal1[4], linewidth = 1.1, linetype = "dashed") +
           geom_text(label = event_descriptions[i], angle = 90,
                     y = 2.7, color = "black", size = 12 / .pt, hjust = "left",
                     x = as.numeric(event_dates[i] + days(14)))
@@ -125,7 +126,7 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
                       scale_shape_manual(name = paste0("Exceeds Design Storm Depth: ",round(design_storm,2)," in"), values = c(2), labels = c("True"), na.translate = FALSE) +
                       scale_color_manual(name = "Overtopping", values = wes_palettes$Royal1, labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
                       scale_size_manual(name = "Overtopping", values = c(2,4), labels = c("False","True"), guide = guide_legend(reverse = TRUE)) +
-                      #from pwdgsi plots
+                      #from pwdgsi plotsS
                       ggplot2::theme(
                         #text = element_text(size = rel(2)), #size previously set to 16
                         axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
@@ -133,8 +134,8 @@ overtopping_qmax_plot <- function(data, design_storm, system_chars, event_dates 
                         axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
                         panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
                         panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
-                        panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
-                        panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+                        panel.grid.major =  ggplot2::element_line(colour = "grey70", linewidth = 0.5), # set major grid lines
+                        panel.grid.minor =  ggplot2::element_line(colour = "grey90", linewidth = 0.5), # set minor grid lines
                         legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
                         legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
   
@@ -154,6 +155,8 @@ pipejet_overtop_plot <- function(data, design_storm){
   # max_date <- max(lubridate::date(data$last_jet))
   
   
+  data$overtop <- as.logical(data$overtop)
+  
   #Set overtop to sizes
   data$overtop_sz[data$overtop == FALSE] <- as.numeric(2)
   data$overtop_sz[data$overtop == TRUE] <- as.numeric(4)
@@ -172,7 +175,7 @@ pipejet_overtop_plot <- function(data, design_storm){
                        y = eventpeakintensity_inhr)) +
     geom_point(aes(color = factor(overtop),
                    size = factor(overtop))) +
-    geom_hline(yintercept = 2.5, color = wes_palettes$Royal1[4], size = 1.5) +
+    geom_hline(yintercept = 2.5, color = wes_palettes$Royal1[4], linewidth = 1.5) +
     scale_y_continuous(limits = c(0,max(3.6,ymax_obs)), minor_breaks =seq(0,max(3,ymax_obs),0.2)) +
     ylab("Event Peak Intensity (in/hr)") + xlab("Days Since Last Pipe Jetting") +
     geom_text(label = "Philadelphia 1-year, 15-minute Peak Intensity: 2.5 in/hr",
@@ -195,8 +198,8 @@ pipejet_overtop_plot <- function(data, design_storm){
       axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
       panel.background =  ggplot2::element_rect(fill = wes_palettes$Royal1[3], colour = NA), # set white background
       panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
-      panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
-      panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+      panel.grid.major =  ggplot2::element_line(colour = "grey70", linewidth = 0.5), # set major grid lines
+      panel.grid.minor =  ggplot2::element_line(colour = "grey90", linewidth = 0.5), # set minor grid lines
       legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
       legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
   
@@ -408,8 +411,8 @@ for(i in 1:nrow(welltable)){
     eventlevel <- filter(welllevel, between(dtime, siteevents$eventdatastart[j], siteevents$eventdataend[j]))
     
     if(nrow(eventlevel) == 0){
-      # print(paste(well_smp, "OW1 has no data for the period when", inlet_smp, "GI1 has data. That range is", 
-      #             siteevents$eventdatastart[j], "to", siteevents$eventdataend[j]))
+      print(paste(well_smp, "OW1 has no data for the period when", inlet_smp, "GI1 has data. That range is",
+                  siteevents$eventdatastart[j], "to", siteevents$eventdataend[j]))
       next
     }
     
@@ -459,10 +462,13 @@ for(i in 1:nrow(well_cth)){
 
 headdiffs <- hd_elevs %>%
          #headdiff_ft: Head differential at peak inlet water level
-  mutate(headdiff_ft = (inlet_elev_ft - inlet_deploy_ft + maxlevel_ft) - (well_elev_ft - well_deploy_ft + welllevel_ft),
-         #maxdiff_ft: Theoretical maximum head differential - if inlet was full and well was empty
-         maxdiff_ft = (inlet_elev_ft - (well_elev_ft - well_deploy_ft))) %>%
-         #normaldiff: Percent of the maximum differential reached at that event (unitless, between 0 and 1)
+  mutate(headdiff_ft = (inlet_elev_ft - inlet_deploy_ft + maxlevel_ft) - (well_elev_ft - well_deploy_ft + welllevel_ft)) %>%
+  group_by(ow_uid) %>%
+  summarize(#maxdiff_ft: Theoretical maximum head differential - if inlet was full and well was empty
+         maxdiff_ft = max(headdiff_ft, na.rm = TRUE)) %>%
+  right_join(hd_elevs) %>%
+        #normaldiff: Percent of the maximum differential reached at that event (unitless, between 0 and 1)
+  mutate(headdiff_ft = (inlet_elev_ft - inlet_deploy_ft + maxlevel_ft) - (well_elev_ft - well_deploy_ft + welllevel_ft)) %>%
   mutate(normaldiff = headdiff_ft/maxdiff_ft) %>%
   select(ow_uid, well_uid, smp_id, radar_event_uid, eventdatastart, eventdataend, overtop, headdiff_ft, maxdiff_ft, normaldiff)
 
@@ -489,8 +495,16 @@ villanova_table <- headdiffs_villanova %>%
   group_by(ow_uid) %>%
   summarize(events = n(),
             overtopping = sum(as.logical(overtop)),
-            overtopping_pct = sum(as.logical(overtop))/n() * 100) %>% left_join(calctable, by = "ow_uid") %>% 
+            overtopping_pct = sum(as.logical(overtop))/n()) %>% left_join(calctable, by = "ow_uid") %>% 
   select(smp_id, ow_suffix, events, overtopping, overtopping_pct)
+
+full_table <- headdiffs %>%
+  group_by(ow_uid) %>%
+  summarize(events = n(),
+            overtopping = sum(as.logical(overtop)),
+            overtopping_pct = sum(as.logical(overtop))/n()) %>% left_join(calctable, by = "ow_uid") %>% 
+  select(smp_id, ow_suffix, events, overtopping, overtopping_pct)
+
 
 #Pipe jetting dates
 graph_dates <- read_csv("//pwdoows/oows/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/graph_dates.csv")
@@ -498,15 +512,20 @@ graph_dates <- read_csv("//pwdoows/oows/Watershed Sciences/GSI Monitoring/06 Spe
 
 for(i in 1:nrow(calctable)){
   sitedata <- filter(headdiffs_villanova, ow_uid == calctable$ow_uid[i])
-  system_id <- calctable$smp_id[i] %>% str_replace("(\\d+-\\d+)-\\d+", "\\1")
+  sys_id <- calctable$smp_id[i] %>% str_replace("(\\d+-\\d+)-\\d+", "\\1")
   
-  site_dates <- filter(graph_dates, system_id == system_id, graph == TRUE) %>%
+  site_dates <- filter(graph_dates, system_id == sys_id, graph == TRUE) %>%
     filter(!is.na(date_complete)) %>%
-    select(system_id, date_complete, graph_text)
+    select(system_id, date_complete, graph_text) %>%
+    filter(graph_text == "Pipe Jetting")
+  
+  if(sys_id == "1-1"){
+    site_dates <- filter(site_dates, date_complete != "3/11/2019")
+  }
   
   design_storm <- dbGetQuery(marsDBCon,
                            paste0("SELECT sys_creditedstormsizemanaged_in FROM external.tbl_systembdv
-                                  WHERE system_id = '",system_id,"'")) %>% pull
+                                  WHERE system_id = '",sys_id,"'")) %>% pull
   
   plotdata <- sitedata %>% dplyr::filter(eventdepth_in <= design_storm)
   
@@ -520,8 +539,199 @@ for(i in 1:nrow(calctable)){
                                       system_chars = loc_sys_char,
                                       event_dates = site_dates$date_complete,
                                       event_descriptions = site_dates$graph_text)
+  
+  ggsave(plot = qpeak_plot,
+         filename = paste0("plots/",calctable$smp_id[i],"_qpeak.png"),
+         width = 2100, height = 1620, units = "px")
+  
+  
+  #Pipe jetting
+  for(j in 1:nrow(plotdata)){
     
+    #get the current date in question
+    date_x <- plotdata$eventdatastart[j] %>% ymd_hms()
+    
+    # list of dates where pipe jetting occurred, coerced into datetime format
+    jet_days <- site_dates$date_complete %>% mdy() %>% as_datetime()
+    
+    # Find the number of days between the current date and each pipe jetting event
+    time_difs <- difftime(date_x, jet_days, units = "days")
+    
+    # Remove pipe jetting events happening in the future; limit it to a list of past pipe jetting events
+    time_difs <- time_difs[time_difs > 0]
+    
+    # Find the shortest distance in days since a pipe jetting event. Set to NA if none are found.
+    plotdata$last_jet[j] <- ifelse(length(time_difs) > 0,
+                                    min(time_difs),
+                                    NA)
+    
+  }
+  
+  plot_zds <- pipejet_overtop_plot(data = plotdata, 
+                                   design_storm = design_storm)
+  
+  ggsave(plot = plot_zds,
+         filename = paste0("plots/",calctable$smp_id[i],"_days_since_jetting.png"),
+         width = 2100, height = 1620, units = "px")
 }
+
+
+```
+
+
+```{r More Plots!}
+headdiffs_plot <- left_join(headdiffs, rain_event_metadata, by = "radar_event_uid") %>%
+  mutate(season = season_fx(eventdatastart)) %>% #And seasons
+  left_join(trap_status) %>% #and inlet trap metadata
+  filter(normaldiff > 0)
+
+
+headdiffs_plot$inlet_style[headdiffs_plot$Trap == FALSE] <- "New (Without Trap)"
+headdiffs_plot$inlet_style[headdiffs_plot$Trap == TRUE] <- "Old (with Trap)"
+
+
+label_text <- headdiffs_plot %>%
+              dplyr::group_by(inlet_style) %>%
+              summarize(style_count = n()) %>%
+              ungroup() %>%
+              right_join(headdiffs_plot, by = "inlet_style") %>%
+              dplyr::group_by(inlet_style, overtop) %>%
+              summarize(label = paste0(round(100*n()/style_count,0),"%"),
+                        headdiff_ft = max(headdiff_ft)) %>%
+              dplyr::select(inlet_style,overtop,label, headdiff_ft) %>%
+              dplyr::distinct()
+
+hdif_inlet_ot_bplot <- ggplot(data = headdiffs_plot, aes(y = headdiff_ft, x = inlet_style, fill = overtop)) +
+                        geom_boxplot(size = 1.1, outlier.shape = NA) +
+                        geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+                        xlab("Inlet Type") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
+                        ggtitle("Head Differential by Inlet Type") +
+                        scale_color_manual(values = c("darkgray","black")) + 
+                        scale_fill_manual(values = wes_palettes$Moonrise2) + 
+                        
+                        geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+                                   hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
+                        
+                        
+                        #from pwdgsi plots; house style
+                        ggplot2::theme(
+                          #text = element_text(size = rel(2)), #size previously set to 16
+                          axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+                          axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+                          title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+                          axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+                          axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+                          panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+                          panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+                          panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+                          panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+                          legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+                          legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+hdif_inlet_ot_bplot
+
+#Pipe slope
+
+headdiffs_design <- left_join(headdiffs_plot, sys_char, by = "smp_id")
+
+# By pipe slope
+slope_x <- headdiffs_design$`Distrib..Slope.(%)` == 0.5
+slope_x <- factor(slope_x, ordered = TRUE, levels = c(TRUE, FALSE))
+headdiffs_design$Distribution_slope <- slope_x
+
+
+# by pipe slope labels
+label_text <- headdiffs_design %>%
+  dplyr::group_by(Distribution_slope) %>%
+  summarize(slope_count = n()) %>%
+  ungroup() %>%
+  right_join(headdiffs_design, by = c("Distribution_slope")) %>%
+  dplyr::group_by(overtop, Distribution_slope) %>%
+  summarize(label = paste0(round(100*n()/slope_count,0),"%"),
+            normaldiff = max(normaldiff)) %>%
+  dplyr::select(overtop,Distribution_slope,label, normaldiff) %>%
+  dplyr::distinct()
+
+label_text$normaldiff <- max(label_text$normaldiff, na.rm = TRUE)
+
+
+ot_hdif_norm_slope_bplot_des <- ggplot(data = headdiffs_design, aes(y = normaldiff, x = Distribution_slope, fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("Sloped Distribution Pipe") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Overtopping by Head Differential and Distribution Pipe Slope") +
+  scale_fill_manual(values = c("grey41","grey82")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_hdif_norm_slope_bplot_des
+
+## By system
+
+#by system labels
+label_text <- headdiffs_design %>%
+  dplyr::group_by(system_id) %>%
+  summarize(sys_count = n()) %>%
+  ungroup() %>%
+  right_join(headdiffs_design, by = c("system_id")) %>%
+  dplyr::group_by(overtop, system_id) %>%
+  summarize(label = paste0(round(100*n()/sys_count,0),"%"),
+            normaldiff = max(normaldiff)) %>%
+  dplyr::select(overtop,system_id,label, normaldiff) %>%
+  dplyr::distinct()
+
+label_text$normaldiff <- max(label_text$normaldiff, na.rm = TRUE)
+
+ot_hdif_norm_system_bplot_des <- ggplot(data = headdiffs_design, aes(y = normaldiff, x = system_id, fill = overtop)) +
+  geom_boxplot(size = 1.1, outlier.shape = NA) +
+  geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
+  xlab("System ID") + ylab("Normalized Head Dif. at Peak Water Level in Green Inlet") +
+  ggtitle("Overtopping by Head Differential per System") +
+  scale_color_manual(values = c("darkgray","black")) + 
+  scale_fill_manual(values = wes_palettes$Moonrise2) + 
+  
+  geom_label(data = label_text, label = label_text$label, position = position_dodge(width = .8),
+             hjust = "center", color = "white", fontface = "bold", show.legend = FALSE, label.size = 1.2) +
+  
+  #from pwdgsi plots; house style
+  ggplot2::theme(
+    #text = element_text(size = rel(2)), #size previously set to 16
+    axis.title.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    axis.title.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"),
+    title = ggplot2::element_text(size = ggplot2::rel(1.4), color = "black"),
+    axis.text.x = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of x axis text #size previously set to 14
+    axis.text.y = ggplot2::element_text(size = ggplot2::rel(1.2), color = "black"), # set font size and color of y axis text
+    panel.background =  ggplot2::element_rect(fill = "white", colour = NA), # set white background
+    panel.border =      ggplot2::element_rect(fill = NA, colour="black"), # set black border
+    panel.grid.major =  ggplot2::element_line(colour = "grey70", size = 0.5), # set major grid lines
+    panel.grid.minor =  ggplot2::element_line(colour = "grey90", size = 0.5), # set minor grid lines
+    legend.position = "bottom", #format legend (to be compiled with rainfall plot in grid.arrange())
+    legend.text = ggplot2::element_text(size = ggplot2::rel(.9)))
+
+ot_hdif_norm_system_bplot_des
+
+ggsave(filename = paste0("plots/Head_dif_vs_Inlet_type.png"), plot = hdif_inlet_ot_bplot, width = 10, height = 8)
+ggsave(filename = paste0("plots/Head_dif_vs_slope_design_storms.png"), plot = ot_hdif_norm_slope_bplot_des, width = 10, height = 8)
+ggsave(filename = paste0("plots/Head_dif_vs_system_design_storms.png"), plot = ot_hdif_norm_system_bplot_des, width = 10, height = 8)
+
+
 
 
 ```
