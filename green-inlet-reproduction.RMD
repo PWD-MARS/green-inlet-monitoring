@@ -315,6 +315,9 @@ sys_char <- openxlsx::read.xlsx(xlsxFile = "//pwdoows/OOWS/Watershed Sciences/GS
 #Inlet traps
 trap_status <- inlet_type %>% dplyr::select(ow_uid, Trap, drainage_area_sf)
 
+#Design storm sizes
+stormsizemanaged <- select(sys_char, smp_id, stormsizemanaged_in = `Storm.Size.Managed.(in)`)
+
 
 ```
 
@@ -485,11 +488,13 @@ rain_event_metadata <- dbGetQuery(marsDBCon, "select radar_uid, radar_event_uid,
 #Attach event metadata
 headdiffs_plot <- left_join(headdiffs, rain_event_metadata, by = "radar_event_uid") %>%
   mutate(season = season_fx(eventdatastart)) %>% #And seasons
-  left_join(trap_status) #and inlet trap metadata
+  left_join(trap_status) %>% #and inlet trap metadata
+  left_join(stormsizemanaged)
 
 #For now, since we don't have updated work orders for pipe jetting, we will filter our events to those same ones from Villanova's date range
 
-headdiffs_villanova <- filter(headdiffs_plot, eventdatastart < ymd('2023-01-01', tz = "America/New_York"))
+headdiffs_villanova <- filter(headdiffs_plot, eventdatastart <= ymd('2023-01-01', tz = "America/New_York")) %>%
+  filter(eventdepth_in <= stormsizemanaged_in)
 
 villanova_table <- headdiffs_villanova %>%
   group_by(ow_uid) %>%
@@ -582,11 +587,7 @@ for(i in 1:nrow(calctable)){
 
 
 ```{r More Plots!, echo = FALSE, include = FALSE}
-headdiffs_plot <- left_join(headdiffs, rain_event_metadata, by = "radar_event_uid") %>%
-  mutate(season = season_fx(eventdatastart)) %>% #And seasons
-  left_join(trap_status) %>% #and inlet trap metadata
-  filter(normaldiff > 0)
-
+headdiffs_plot <- filter(headdiffs_villanova, normaldiff > 0)
 
 headdiffs_plot$inlet_style[headdiffs_plot$Trap == FALSE] <- "New (Without Trap)"
 headdiffs_plot$inlet_style[headdiffs_plot$Trap == TRUE] <- "Old (with Trap)"
@@ -599,11 +600,11 @@ label_text <- headdiffs_plot %>%
               right_join(headdiffs_plot, by = "inlet_style") %>%
               dplyr::group_by(inlet_style, overtop) %>%
               summarize(label = paste0(round(100*n()/style_count,0),"%"),
-                        headdiff_ft = max(headdiff_ft)) %>%
-              dplyr::select(inlet_style,overtop,label, headdiff_ft) %>%
+                        normaldiff = max(normaldiff)) %>%
+              dplyr::select(inlet_style,overtop,label, normaldiff) %>%
               dplyr::distinct()
 
-hdif_inlet_ot_bplot <- ggplot(data = headdiffs_plot, aes(y = headdiff_ft, x = inlet_style, fill = overtop)) +
+hdif_inlet_ot_bplot <- ggplot(data = headdiffs_plot, aes(y = normaldiff, x = inlet_style, fill = overtop)) +
                         geom_boxplot(size = 1.1, outlier.shape = NA) +
                         geom_point(position=position_jitterdodge(jitter.width = 0.1), shape = 21, alpha = 0.7, size = 1.5) +
                         xlab("Inlet Type") + ylab("Head Differential at Peak Water Level in Green Inlet (ft)") +
