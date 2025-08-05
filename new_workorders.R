@@ -22,7 +22,7 @@ cw_con <- DBI::dbConnect(odbc::odbc(),
 
 wo <- dbGetQuery(cw_con, paste0("select * from Azteca.WORKORDER where
   WORKORDERID in (", paste(pjwo, collapse = ","), ")")) %>%
-  select(WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED, CANCEL, CANCELREASON)
+  select(WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED, CANCEL, CANCELREASON, TEXT1)
 
 wocom <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT where
   WORKORDERID in ('", paste(pjwo, collapse = "','"), "')")) %>%
@@ -32,36 +32,37 @@ wocom <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT where
   group_by(WORKORDERID) %>%
   summarize(comments = paste(stripcrlf, collapse = "; "))
 
+oldentities <- dbGetQuery(cw_con, paste0("select WORKORDERID,  from azteca.workorderentity where workorderid in ('",
+  paste(pjwo, collapse = "', '"), "')"))
+
 orders <- left_join(wo, wocom)
 
 categories <- unique(orders$DESCRIPTION)
 
-assets <- c('{6DF5991C-E1DA-4D46-87E3-CFF8BF52CAD9}', #Our inlets
-            '{D7A9BD57-1B2F-4BAE-BE1F-4509E7ECFC28}', 
-            '{5521AD39-EBBB-4715-9373-5FA1D325EA9D}', 
-            '{A0F97734-F06F-4D51-A3F5-EBFACF07DB01}', 
-            '{60B63BCC-464B-4C45-80C0-B19A2F393C79}', 
-            '{575649EA-4B8B-4CAF-B7E9-63976D880C97}', 
-            '{AC1981EC-497B-41F9-9B4E-5A5BA816BAD3}', 
-            '{8EB640A4-078E-4EAB-A264-91115117FD2E}', 
-            '{6F836364-968C-407D-AE88-4E3C2BC294E4}')
+assets <- openxlsx::read.xlsx(xlsxFile = 
+  "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/Assets.xlsx",
+  sheet = "Inlet Depths") %>%
+  transmute(smp_id, facility_id = paste0('{', facility_id, '}', component_id))
 
-
+#ordersWithAssets <- left_join(orders, )
+#Search by component ID too
 
 entities <- dbGetQuery(cw_con, paste0("select * from azteca.workorderentity where entityuid in ('",
-                                     paste(assets, collapse = "', '"), "')")) %>%
+                                     paste(assets$facility_id, collapse = "', '"), "')")) %>%
   mutate(ENTITYUID = toupper(ENTITYUID)) %>%
-  select(WORKORDERID, ENTITYUID, ENTITYTYPE)
+  select(WORKORDERID, ENTITYUID, ENTITYTYPE) %>% 
+  left_join(assets, by = c("ENTITYUID" = "facility_id"))
 
 neworders <- unique(entities$WORKORDERID)
 
-newquery <- paste0("select WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED, CANCEL, CANCELREASON
+newquery <- paste0("select WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED, CANCEL, CANCELREASON, TEXT1
                    from AZTECA.WORKORDER where WORKORDERID in (", paste(neworders, collapse = ","), ") ",
                    "and DESCRIPTION in ('", paste(categories, collapse = "', '"), "')")
 
-realneworders <- dbGetQuery(cw_con, newquery) %>% 
+realneworders <- dbGetQuery(cw_con, newquery) %>%
+  left_join(entities, by = "WORKORDERID") %>% 
   filter(!(WORKORDERID %in% orders$WORKORDERID)) %>%
-  filter(INITIATEDATE > min(orders$INITIATEDATE))
+  filter(INITIATEDATE > max(orders$INITIATEDATE))
 
 realnewcomments <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT where
   WORKORDERID in ('", paste(realneworders$WORKORDERID, collapse = "','"), "')")) %>%
@@ -71,4 +72,9 @@ realnewcomments <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT whe
   group_by(WORKORDERID) %>%
   summarize(comments = paste(stripcrlf, collapse = "; "))
 
-realnewghostbusters <- full_join(realneworders, realnewcomments)
+realnewghostbusters <- full_join(realneworders, realnewcomments) %>%
+  left_join(entities, by = "WORKORDERID") %>%
+  select(smp_id, WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED, CANCEL, 
+         CANCELREASON, TEXT1, comments)
+
+
