@@ -32,26 +32,28 @@ wocom <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT where
   group_by(WORKORDERID) %>%
   summarize(comments = paste(stripcrlf, collapse = "; "))
 
-oldentities <- dbGetQuery(cw_con, paste0("select WORKORDERID,  from azteca.workorderentity where workorderid in ('",
+oldentities <- dbGetQuery(cw_con, paste0("select WORKORDERID, ENTITYUID from azteca.workorderentity where workorderid in ('",
   paste(pjwo, collapse = "', '"), "')"))
-
-orders <- left_join(wo, wocom)
 
 categories <- unique(orders$DESCRIPTION)
 
 assets <- openxlsx::read.xlsx(xlsxFile = 
   "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/Assets.xlsx",
   sheet = "Inlet Depths") %>%
-  transmute(smp_id, facility_id = paste0('{', facility_id, '}', component_id))
+  transmute(smp_id, facility_id = paste0('{', facility_id, '}'), component_id) %>%
+  reshape2::melt("smp_id") %>%
+  transmute(smp_id, variable, value = toupper(value))
+
+orders <- left_join(wo, wocom) %>% left_join(oldentities) %>% left_join(assets, by = c("ENTITYUID" = "value"))
 
 #ordersWithAssets <- left_join(orders, )
 #Search by component ID too
 
 entities <- dbGetQuery(cw_con, paste0("select * from azteca.workorderentity where entityuid in ('",
-                                     paste(assets$facility_id, collapse = "', '"), "')")) %>%
+                                     paste(oldentities$ENTITYUID, collapse = "', '"), "')")) %>%
   mutate(ENTITYUID = toupper(ENTITYUID)) %>%
-  select(WORKORDERID, ENTITYUID, ENTITYTYPE) %>% 
-  left_join(assets, by = c("ENTITYUID" = "facility_id"))
+  transmute(WORKORDERID, ENTITYUID = toupper(ENTITYUID), ENTITYTYPE) %>% 
+  left_join(assets, by = c("ENTITYUID" = "value"))
 
 neworders <- unique(entities$WORKORDERID)
 
@@ -60,8 +62,10 @@ newquery <- paste0("select WORKORDERID, DESCRIPTION, INITIATEDATE, DATEWOCLOSED,
                    "and DESCRIPTION in ('", paste(categories, collapse = "', '"), "')")
 
 realneworders <- dbGetQuery(cw_con, newquery) %>%
-  left_join(entities, by = "WORKORDERID") %>% 
-  filter(!(WORKORDERID %in% orders$WORKORDERID)) %>%
+  left_join(entities, by = "WORKORDERID")%>% 
+  filter(!(WORKORDERID %in% orders$WORKORDERID))
+
+%>%
   filter(INITIATEDATE > max(orders$INITIATEDATE))
 
 realnewcomments <- dbGetQuery(cw_con, paste0("select * from Azteca.WOCOMMENT where
