@@ -69,9 +69,12 @@ marsWeirdEntities <- dbGetQuery(marsDBCon, paste0("select * from external.tbl_gs
 
 #Find the old work orders and locate their work order entities in the MARS database
 marsassets <- dbGetQuery(marsDBCon, "select * from external.mat_assets") %>%
-  mutate(facility_id = paste0('{', toupper(facility_id), '}'))
+  mutate(facility_id = paste0('{', toupper(facility_id), '}')) 
 
-orders <- left_join(wo, wocom) %>% left_join(oldentities) %>% left_join(marsassets, by = c("ENTITYUID" = "value"))
+meltedassets <- marsassets %>% 
+  reshape2::melt(id.vars = c("smp_id", "system_id", "asset_type"))
+
+orders <- left_join(wo, wocom) %>% left_join(oldentities) %>% left_join(meltedassets, by = c("ENTITYUID" = "value"))
 categories <- unique(orders$DESCRIPTION)
 
 #Not all relevant distribution pipes are included in this list. Make sure they are by filtering by SMP ID and manually adding them
