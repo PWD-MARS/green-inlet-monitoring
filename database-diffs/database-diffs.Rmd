@@ -1,0 +1,139 @@
+---
+title: "Database Diffs"
+output: html_document
+date: "2025-09-22"
+---
+
+```{r setup, include=FALSE}
+
+#Dplyr stuff
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+library(knitr)
+
+#Database Stuff
+library(pool)
+library(RPostgres)
+
+#Brian's archival database
+mars_brian <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "gi_20240614",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
+
+#Live database
+mars_prod <- tryCatch({
+  dbPool(
+    drv = RPostgres::Postgres(),
+    host = "PWDMARSDBS1",
+    port = 5434,
+    dbname = "mars_prod",
+    user= Sys.getenv("admin_uid"),
+    password = Sys.getenv("admin_pwd"),
+    timezone = NULL)},
+  error = function(e){e})
+
+#Calculation data ranges
+  #Basic cutoff date
+  cutoff_date <- ymd("2024-01-01", tz = "America/New_York") #Original analysis was through 2023
+  
+  #Site-specific cutoff dates
+  cutoff_11 <- ymd("2020-11-13", tz = "America/New_York") #System 1-1 taken offline for short-circuiting
+  cutoff_4391 <- ymd("2022-01-14", tz = "America/New_York") #System 439-1 taken offline for short-circuiting
+  
+  #Site-specific exclusion ranges
+  capped_1795 <- ymd("2021-11-08", tz = "America/New_York") #System 179-5 was capped for 2 months
+  uncapped_1795 <- ymd("2021-12-30", tz = "America/New_York")
+
+#Monitored sites, from prod
+wells <- dbGetQuery(mars_prod, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
+                    left join admin.tbl_smp_radar r on o.smp_id = r.smp_id
+                    left join admin.tbl_smp_gage g on o.smp_id = g.smp_id
+                    where (o.ow_suffix like 'GI%' or o.ow_suffix = 'OW1')
+                      and o.smp_id in ('1-1-1', '1-3-1', '171-1-1', '171-2-1', '179-5-1', '439-1-1', '488-5-1', '1006-1-1')") %>%
+  filter(ow_uid != 1077) %>% #179-5-1 GI2 was not monitored 
+  arrange(smp_id, ow_suffix)
+
+#Are these the same in Brian's DB?
+wells_brian <- dbGetQuery(mars_brian, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
+                    left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
+                    left join admin.tbl_smp_gage g on o.smp_id = g.smp_id
+                    where (o.ow_suffix like 'GI%' or o.ow_suffix = 'OW1')
+                      and o.smp_id in ('1-1-1', '1-3-1', '171-1-1', '171-2-1', '179-5-1', '439-1-1', '488-5-1', '1006-1-1')") %>%
+  filter(ow_uid != 1077) %>% #179-5-1 GI2 was not monitored
+  arrange(smp_id, ow_suffix)
+
+if(!identical(wells, wells_brian)){
+  stop("Fatal Error: GI query not identical across databases") #Halt everything if not.
+}
+
+
+```
+
+## Background
+
+In an effort to track down what differences and discrepancies exist between the data that Brian used for the 2024 VUSP Green Inlet Monitoring study, this document will perform a diff between an archival copy of the database he used and the current production MARS database for the same period.
+
+Notable differences include the DST migration that took place in early 2025 and resulted in a retroactive springing-forwards of our water level data. The data structures in the MARS production database also contain time zone metadata. The 2024 archival database stores all timestamp data in implicit local time, with no time zone metadata, and reflects the responsiveness of that field to DST shifts in the name of the field (eg, dtime_est vs dtime_edt).
+
+```{r Raw counts}
+
+#Data points by OW
+level_query_brian <- paste0("select l.dtime_est, l.level_ft, l.ow_uid, o.smp_id, o.ow_suffix 
+                      from data.tbl_ow_leveldata_raw l
+                      left join fieldwork.tbl_ow o on l.ow_uid = o.ow_uid
+                      where l.ow_uid in (",
+                      paste(wells$ow_uid, collapse = ", "),
+                      ")")
+
+level_brian <- dbGetQuery(mars_brian, level_query_brian) #%>%
+beep <- level_brian %>% arrange(dtime_est) %>%
+  filter(dtime_est < cutoff_date) %>%
+  filter(!(dtime_est >= cutoff_11 & smp_id == '1-1-1')) %>%
+  filter(!(dtime_est >= cutoff_4391 & smp_id == '439-1-1'))
+
+bope <- group_by(beep, ow_uid, smp_id, ow_suffix) %>% 
+  summarize(first = first(dtime_est), 
+            last = last(dtime_est),
+            count = n()) %>% 
+  ungroup() %>%
+  arrange(smp_id, ow_suffix)
+
+level_query_prod <- paste0("select l.dtime, l.level_ft, l.ow_uid, o.smp_id, o.ow_suffix 
+                      from data.tbl_ow_leveldata_raw l
+                      left join fieldwork.tbl_ow o on l.ow_uid = o.ow_uid
+                      where l.ow_uid in (",
+                      paste(wells$ow_uid, collapse = ", "),
+                      ")")
+
+level_prod <- dbGetQuery(mars_prod, level_query_prod) #%>%
+bape <- level_prod %>% arrange(dtime) %>%
+  filter(dtime < cutoff_date) %>%
+  filter(!(dtime >= cutoff_11 & smp_id == '1-1-1')) %>%
+  filter(!(dtime >= cutoff_4391 & smp_id == '439-1-1'))
+
+barp <- group_by(bape, ow_uid, smp_id, ow_suffix) %>% 
+  summarize(first = first(dtime_est), 
+            last = last(dtime_est),
+            count = n()) %>% 
+  ungroup() %>%
+  arrange(smp_id, ow_suffix)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
