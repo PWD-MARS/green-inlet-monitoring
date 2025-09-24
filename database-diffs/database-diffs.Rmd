@@ -51,6 +51,7 @@ mars_prod <- tryCatch({
   #Site-specific exclusion ranges
   capped_1795 <- ymd("2021-11-08", tz = "America/New_York") #System 179-5 was capped for 2 months
   uncapped_1795 <- ymd("2021-12-30", tz = "America/New_York")
+  exclusion_1795 <- interval(start = capped_1795, end = uncapped_1795)
 
 #Monitored sites, from prod
 wells <- dbGetQuery(mars_prod, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
@@ -83,7 +84,7 @@ In an effort to track down what differences and discrepancies exist between the 
 
 Notable differences include the DST migration that took place in early 2025 and resulted in a retroactive springing-forwards of our water level data. The data structures in the MARS production database also contain time zone metadata. The 2024 archival database stores all timestamp data in implicit local time, with no time zone metadata, and reflects the responsiveness of that field to DST shifts in the name of the field (eg, dtime_est vs dtime_edt).
 
-```{r Raw counts}
+```{r Raw counts level}
 
 #Data points by OW
 level_query_brian <- paste0("select l.dtime_est, l.level_ft, l.ow_uid, o.smp_id, o.ow_suffix 
@@ -94,10 +95,12 @@ level_query_brian <- paste0("select l.dtime_est, l.level_ft, l.ow_uid, o.smp_id,
                       ")")
 
 level_brian <- dbGetQuery(mars_brian, level_query_brian) #%>%
+
 beep <- level_brian %>% arrange(dtime_est) %>%
   filter(dtime_est < cutoff_date) %>%
   filter(!(dtime_est >= cutoff_11 & smp_id == '1-1-1')) %>%
-  filter(!(dtime_est >= cutoff_4391 & smp_id == '439-1-1'))
+  filter(!(dtime_est >= cutoff_4391 & smp_id == '439-1-1')) %>%
+  filter(!(dtime_est %within% exclusion_1795 & smp_id == '179-5-1'))
 
 bope <- group_by(beep, ow_uid, smp_id, ow_suffix) %>% 
   summarize(first = first(dtime_est), 
@@ -117,23 +120,38 @@ level_prod <- dbGetQuery(mars_prod, level_query_prod) #%>%
 bape <- level_prod %>% arrange(dtime) %>%
   filter(dtime < cutoff_date) %>%
   filter(!(dtime >= cutoff_11 & smp_id == '1-1-1')) %>%
-  filter(!(dtime >= cutoff_4391 & smp_id == '439-1-1'))
+  filter(!(dtime >= cutoff_4391 & smp_id == '439-1-1')) %>%
+  filter(!(dtime %within% exclusion_1795 & smp_id == '179-5-1'))
 
 barp <- group_by(bape, ow_uid, smp_id, ow_suffix) %>% 
-  summarize(first = first(dtime_est), 
-            last = last(dtime_est),
+  summarize(first = first(dtime), 
+            last = last(dtime),
             count = n()) %>% 
   ungroup() %>%
   arrange(smp_id, ow_suffix)
 
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+```{r Raw counts rain, echo=FALSE}
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+#Oldest GI data in the analysis is from January 2019, so we will start measuring the rain from that date
+
+gage_query_brian <- "select r.gage_uid, r.dtime_edt, r.rainfall_in from data.tbl_gage_rain r
+  where dtime_edt > '2019-01-01 00:00:00'"
+gage_brian <- dbGetQuery(mars_brian, gage_query_brian) %>% filter(dtime_edt < cutoff_date)
+
+radar_query_brian <- "select r.radar_uid, r.dtime_edt, r.rainfall_in from data.tbl_radar_rain r
+  where dtime_edt > '2019-01-01 00:00:00'"
+radar_brian <- dbGetQuery(mars_brian, radar_query_brian) %>% filter(dtime_edt < cutoff_date)
+
+gage_query_prod <- "select r.gage_uid, r.dtime, r.rainfall_in from data.tbl_gage_rain r
+  where dtime > '2019-01-01 00:00:00'"
+gage_prod <- dbGetQuery(mars_prod, gage_query_prod) %>% filter(dtime < cutoff_date)
+
+radar_query_prod <- "select r.radar_uid, r.dtime, r.rainfall_in from data.tbl_radar_rain r
+  where dtime > '2019-01-01 00:00:00'"
+radar_prod <- dbGetQuery(mars_prod, radar_query_prod) %>% filter(dtime < cutoff_date)
+
+
 ```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
