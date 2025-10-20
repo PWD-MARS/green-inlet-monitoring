@@ -17,17 +17,18 @@ library(reshape2)
 library(pool)
 library(openxlsx)
 library(RPostgres)
+library(pwdgsi)
 
 #Brian's archival database
-mars_brian <- tryCatch({
+mars_archive <- tryCatch({
   dbPool(
     drv = RPostgres::Postgres(),
     host = "PWDMARSDBS1",
     port = 5434,
-    dbname = "gi_20240614",
+    dbname = "20240405T2000_mars_data",
     user= Sys.getenv("admin_uid"),
     password = Sys.getenv("admin_pwd"),
-    timezone = NULL)},
+    timezone = "EST")},
   error = function(e){e})
 
 #Live database
@@ -42,9 +43,11 @@ mars_prod <- tryCatch({
     timezone = NULL)},
   error = function(e){e})
 
+
 #Calculation data ranges
   #Basic cutoff date
-  cutoff_date <- ymd("2024-01-01", tz = "America/New_York") #Original analysis was through 2023
+  start_date <- ymd("2019-01-01", tz = "America/New_York")
+  cutoff_date <- ymd("2024-01-01", tz = "America/New_York") #Original analysis was 2019 through 2023
   
   #Site-specific cutoff dates
   cutoff_11 <- ymd("2020-11-13", tz = "America/New_York") #System 1-1 taken offline for short-circuiting
@@ -55,6 +58,20 @@ mars_prod <- tryCatch({
   uncapped_1795 <- ymd("2021-12-30", tz = "America/New_York")
   exclusion_1795 <- interval(start = capped_1795, end = uncapped_1795)
 
+  #Cutoff Dates - Archive
+  #Basic cutoff date
+  start_date_archive <- ymd("2019-01-01", tz = "EST")
+  cutoff_date_archive <- ymd("2024-01-01", tz = "EST") #Original analysis was 2019 through 2023
+  
+  #Site-specific cutoff dates
+  cutoff_11_archive <- ymd("2020-11-13", tz = "EST") #System 1-1 taken offline for short-circuiting
+  cutoff_4391_archive <- ymd("2022-01-14", tz = "EST") #System 439-1 taken offline for short-circuiting
+  
+  #Site-specific exclusion ranges
+  capped_1795_archive <- ymd("2021-11-08", tz = "EST") #System 179-5 was capped for 2 months
+  uncapped_1795_archive <- ymd("2021-12-30", tz = "EST")
+  exclusion_1795_archive <- interval(start = capped_1795_archive, end = uncapped_1795_archive)
+  
 #Monitored sites, from prod
 wells <- dbGetQuery(mars_prod, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
                     left join admin.tbl_smp_radar r on o.smp_id = r.smp_id
@@ -64,8 +81,8 @@ wells <- dbGetQuery(mars_prod, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid,
   filter(ow_uid != 1077) %>% #179-5-1 GI2 was not monitored 
   arrange(smp_id, ow_suffix)
 
-#Are these the same in Brian's DB?
-wells_brian <- dbGetQuery(mars_brian, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
+#Are these the same in the archive DB?
+wells_archive <- dbGetQuery(mars_archive, "select ow_uid, o.smp_id, ow_suffix, r.radar_uid, g.gage_uid from fieldwork.tbl_ow o 
                     left join admin.tbl_smp_radar r on o.smp_id = r.smp_id 
                     left join admin.tbl_smp_gage g on o.smp_id = g.smp_id
                     where (o.ow_suffix like 'GI%' or o.ow_suffix = 'OW1')
@@ -73,7 +90,7 @@ wells_brian <- dbGetQuery(mars_brian, "select ow_uid, o.smp_id, ow_suffix, r.rad
   filter(ow_uid != 1077) %>% #179-5-1 GI2 was not monitored
   arrange(smp_id, ow_suffix)
 
-if(!identical(wells, wells_brian)){
+if(!identical(wells, wells_archive)){
   stop("Fatal Error: GI query not identical across databases") #Halt everything if not.
 }
 
@@ -81,22 +98,37 @@ if(!identical(wells, wells_brian)){
 sys_char_brian <- openxlsx::read.xlsx(xlsxFile = "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/SystemCharacteristics.xlsx", sheet = "Characteristics") %>%
   transmute(smp_id, system_id, gi_suffix = GI, ow_suffix = OW, brian_design_storm_in = `Storm.Size.Managed.(in)`) %>%
   melt(id.vars = c("smp_id", "system_id", "brian_design_storm_in"), value.name = "ow_suffix") %>% #GI suffix and OW suffix stored in different variables; unifying them here
-  select(system_id, brian_design_storm_in) %>%
+  select(smp_id, system_id, brian_design_storm_in) %>%
   unique %>%
   arrange(system_id)
 
 #Read design storms from brian's archive database
-sys_char_archive <- dbGetQuery(mars_brian, "select system_id, sys_rawstormsizemanaged_in as archive_rawssm_in, sys_creditedstormsizemanaged_in as archive_creditedssm_in from external.tbl_systembdv") %>% 
+sys_char_archive <- dbGetQuery(mars_archive, "select system_id, sys_rawstormsizemanaged_in as archive_rawssm_in, sys_creditedstormsizemanaged_in as archive_creditedssm_in from external.tbl_systembdv") %>% 
   filter(system_id %in% sys_char_brian$system_id) %>%
-  arrange(system_id)
+  mutate(smp_id = paste0(system_id, "-1")) %>%
+  arrange(smp_id)
 
 #Read design storms from prod
 sys_char_prod <- dbGetQuery(mars_prod, "select system_id, sys_rawstormsizemanaged_in as prod_rawssm_in, sys_creditedstormsizemanaged_in prod_creditedssm_in from external.tbl_systembdv") %>% 
   filter(system_id %in% sys_char_brian$system_id) %>%
-  arrange(system_id)
-
+  mutate(smp_id = paste0(system_id, "-1")) %>%
+  arrange(smp_id)
 
 ssm <- left_join(sys_char_brian, sys_char_archive) %>% left_join(sys_char_prod)
+
+#Attach storm size managed to the well table
+#We will use Brian's, since it seems some have changed in the meantime
+wells <- left_join(wells, ssm) %>% select(-system_id)
+
+#Deployment depths from prod. Used for head diffs and OT calculations
+deployment_depths_prod <- dbGetQuery(mars_prod, "select ow_uid, well_depth_ft, start_dtime, end_dtime, deployment_depth_ft from fieldwork.viw_ow_plus_measurements 
+where ow_uid in(1165, 660, 1416, 663, 1415, 1157, 1413, 1065, 1414, 1066, 1076, 700, 1417, 1062, 1651, 1063)
+and start_dtime < '2024-01-01'")
+
+#Deployment depths from the archive
+deployment_depths_archive <- dbGetQuery(mars_archive, "select ow_uid, well_depth_ft, start_dtime_est, end_dtime_est, deployment_depth_ft from fieldwork.viw_ow_plus_measurements 
+where ow_uid in(1165, 660, 1416, 663, 1415, 1157, 1413, 1065, 1414, 1066, 1076, 700, 1417, 1062, 1651, 1063)
+and start_dtime_est < '2024-01-01'")
 
 ```
 
@@ -110,21 +142,22 @@ Notable differences include the DST migration that took place in early 2025 and 
 ```{r Raw counts level}
 
 #Data points by OW
-level_query_brian <- paste0("select l.dtime_est, l.level_ft, l.ow_uid, o.smp_id, o.ow_suffix 
+level_query_archive <- paste0("select l.dtime_est, l.level_ft, l.ow_uid, o.smp_id, o.ow_suffix 
                       from data.tbl_ow_leveldata_raw l
                       left join fieldwork.tbl_ow o on l.ow_uid = o.ow_uid
                       where l.ow_uid in (",
                       paste(wells$ow_uid, collapse = ", "),
                       ")")
 
-level_brian <- dbGetQuery(mars_brian, level_query_brian) %>% 
+level_archive <- dbGetQuery(mars_archive, level_query_archive) %>% 
   arrange(dtime_est) %>%
-  filter(dtime_est < cutoff_date) %>%
-  filter(!(dtime_est >= cutoff_11 & smp_id == '1-1-1')) %>%
-  filter(!(dtime_est >= cutoff_4391 & smp_id == '439-1-1')) %>%
-  filter(!(dtime_est %within% exclusion_1795 & smp_id == '179-5-1'))
+  filter(dtime_est < cutoff_date_archive) %>%
+  filter(dtime_est >= start_date_archive) %>%
+  filter(!(dtime_est >= cutoff_11_archive & smp_id == '1-1-1')) %>%
+  filter(!(dtime_est >= cutoff_4391_archive & smp_id == '439-1-1')) %>%
+  filter(!(dtime_est %within% exclusion_1795_archive & smp_id == '179-5-1'))
 
-level_brian_summary <- group_by(beep, ow_uid, smp_id, ow_suffix) %>% 
+level_archive_summary <- group_by(level_archive, ow_uid, smp_id, ow_suffix) %>% 
   summarize(first = first(dtime_est), 
             last = last(dtime_est),
             count = n()) %>% 
@@ -141,11 +174,12 @@ level_query_prod <- paste0("select l.dtime, l.level_ft, l.ow_uid, o.smp_id, o.ow
 level_prod <- dbGetQuery(mars_prod, level_query_prod) %>%
   arrange(dtime) %>%
   filter(dtime < cutoff_date) %>%
+  filter(dtime >= start_date) %>%
   filter(!(dtime >= cutoff_11 & smp_id == '1-1-1')) %>%
   filter(!(dtime >= cutoff_4391 & smp_id == '439-1-1')) %>%
   filter(!(dtime %within% exclusion_1795 & smp_id == '179-5-1'))
 
-level_prod_summary <- group_by(bape, ow_uid, smp_id, ow_suffix) %>% 
+level_prod_summary <- group_by(level_prod, ow_uid, smp_id, ow_suffix) %>% 
   summarize(first = first(dtime), 
             last = last(dtime),
             count = n()) %>% 
@@ -159,20 +193,13 @@ level_prod_summary <- group_by(bape, ow_uid, smp_id, ow_suffix) %>%
 
 #Oldest GI data in the analysis is from January 2019, so we will start measuring the rain from that date
 
-gage_query_brian <- "select r.gage_uid, r.dtime_edt, r.rainfall_in from data.tbl_gage_rain r
-  where dtime_edt > '2019-01-01 00:00:00'"
-gage_brian <- dbGetQuery(mars_brian, gage_query_brian) %>% filter(dtime_edt < cutoff_date)
+radar_query_archive <- paste("select r.radar_uid, r.dtime_edt, r.rainfall_in from data.tbl_radar_rain r
+  where dtime_edt > '2019-01-01 00:00:00' and radar_uid in (", paste(unique(wells$radar_uid), collapse = ", "), ")")
+radar_archive <- dbGetQuery(mars_archive, radar_query_archive) %>% filter(dtime_edt < cutoff_date_archive)
 
-radar_query_brian <- "select r.radar_uid, r.dtime_edt, r.rainfall_in from data.tbl_radar_rain r
-  where dtime_edt > '2019-01-01 00:00:00'"
-radar_brian <- dbGetQuery(mars_brian, radar_query_brian) %>% filter(dtime_edt < cutoff_date)
 
-gage_query_prod <- "select r.gage_uid, r.dtime, r.rainfall_in from data.tbl_gage_rain r
-  where dtime > '2019-01-01 00:00:00'"
-gage_prod <- dbGetQuery(mars_prod, gage_query_prod) %>% filter(dtime < cutoff_date)
-
-radar_query_prod <- "select r.radar_uid, r.dtime, r.rainfall_in from data.tbl_radar_rain r
-  where dtime > '2019-01-01 00:00:00'"
+radar_query_prod <- paste("select r.radar_uid, r.dtime, r.rainfall_in from data.tbl_radar_rain r
+  where dtime > '2019-01-01 00:00:00' and radar_uid in (", paste(unique(wells$radar_uid), collapse = ", "), ")")
 radar_prod <- dbGetQuery(mars_prod, radar_query_prod) %>% filter(dtime < cutoff_date)
 
 ```
@@ -181,29 +208,746 @@ radar_prod <- dbGetQuery(mars_prod, radar_query_prod) %>% filter(dtime < cutoff_
 
 #Oldest GI data in the analysis is from January 2019, so we will start measuring the rain from that date
 
-gage_event_query_brian <- "select r.gage_event_uid, r.gage_uid, r.eventdatastart_edt, r.eventdataend_edt, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_gage_event r
-  where eventdatastart_edt > '2019-01-01 00:00:00'"
-event_gage_brian <- dbGetQuery(mars_brian, gage_event_query_brian) %>% filter(eventdatastart_edt < cutoff_date)
+radar_event_query_archive <- paste0("select r.radar_event_uid, r.radar_uid, r.eventdatastart_edt, r.eventdataend_edt, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_radar_event r
+  where eventdatastart_edt > '2019-01-01 00:00:00'
+    and radar_uid in (", paste(unique(wells$radar_uid), collapse = ', '), ")")
+event_radar_archive <- dbGetQuery(mars_archive, radar_event_query_archive) %>% filter(eventdatastart_edt < cutoff_date_archive)
 
-radar_event_query_brian <- "select r.radar_event_uid, r.radar_uid, r.eventdatastart_edt, r.eventdataend_edt, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_radar_event r
-  where eventdatastart_edt > '2019-01-01 00:00:00'"
-event_radar_brian <- dbGetQuery(mars_brian, radar_event_query_brian) %>% filter(eventdatastart_edt < cutoff_date)
-
-gage_event_query_prod <- "select r.gage_event_uid, r.gage_uid, r.eventdatastart, r.eventdataend, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_gage_event r
-  where eventdatastart > '2019-01-01 00:00:00'"
-event_gage_prod <- dbGetQuery(mars_prod, gage_event_query_prod) %>% filter(eventdatastart < cutoff_date)
-
-radar_event_query_prod <- "select r.radar_event_uid, r.radar_uid, r.eventdatastart, r.eventdataend, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_radar_event r
-  where eventdatastart > '2019-01-01 00:00:00'"
+radar_event_query_prod <- paste0("select r.radar_event_uid, r.radar_uid, r.eventdatastart, r.eventdataend, r.eventduration_hr, r.eventpeakintensity_inhr, r.eventavgintensity_inhr, r.eventdepth_in from data.tbl_radar_event r
+  where eventdatastart > '2019-01-01 00:00:00'
+  and radar_uid in (", paste(unique(wells$radar_uid), collapse = ', '), ")")
 event_radar_prod <- dbGetQuery(mars_prod, radar_event_query_prod) %>% filter(eventdatastart < cutoff_date)
 
 #Event UIDs from Brian's metrics
-archive_metrics_brian <- read_csv("//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/2024-06-10/gi_metrics_5min.csv")
+archive_metrics_brian_dec15 <- read_csv("//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/2023-12-15/gi_metrics.csv")
+
+archive_metrics_brian_jun10 <- read_csv("//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/2024-06-10/gi_metrics_5min.csv")
+
+archive_metrics_brian_apr03 <- read_csv("//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/2024-04-03/overtopping_data.csv")
+
+#Radar summaries
+event_summary_archive <- group_by(event_radar_archive, radar_uid) %>%
+  summarize(count = n(), 
+            totaldepth_in = sum(eventdepth_in), 
+            totalduration_hr = sum(eventduration_hr),
+            averageduration_hr = mean(eventduration_hr))
+
+event_summary_prod <- group_by(event_radar_prod, radar_uid) %>%
+  summarize(count = n(), 
+            totaldepth_in = sum(eventdepth_in), 
+            totalduration_hr = sum(eventduration_hr),
+            averageduration_hr = mean(eventduration_hr))
 
 ```
 
-```{r set comparisons - brian's csv vs archive db vs prod, echo = FALSE}
+```{r hypothetical event maxes, echo = FALSE}
+
+# Create hypothetical per-site max counts of events for each data source
+#Archive dataset
+  radarmax_archive <- transmute(wells, ow_uid, smp_id, ow_suffix, radar_uid, archive_creditedssm_in, radarmax = NA)
+  radarmax_archive_events <- data.frame(NULL)
+  
+  for(i in 1:nrow(radarmax_archive)){
+    radar_events <- filter(event_radar_archive, radar_uid == radarmax_archive$radar_uid[i])
+        print(paste(radarmax_archive$smp_id[i], "has", nrow(radar_events), "pre-exclusion events"))
+
+    #Filter for exclusions
+    if(radarmax_archive$smp_id[i] == '1-1-1'){
+      radar_events <- filter(radar_events, eventdataend_edt < cutoff_11_archive)
+    } else if(radarmax_archive$smp_id[i] == '439-1-1'){
+      radar_events <- filter(radar_events, eventdataend_edt < cutoff_4391_archive)
+    } else if(radarmax_archive$smp_id[i] == '179-5-1'){
+      radar_events <- filter(radar_events, 
+                             !(eventdatastart_edt %within% exclusion_1795_archive),
+                             !(eventdataend_edt %within% exclusion_1795_archive))
+  
+    }
+    
+    #Filter for design storms only
+      print(paste(radarmax_archive$smp_id[i], "has", nrow(radar_events), "post-exclusion events"))
+    radar_events <- filter(radar_events, eventdepth_in <= radarmax_archive$archive_creditedssm_in[i])
+      print(paste(radarmax_archive$smp_id[i], "has", nrow(radar_events), "post-exclusion design events"))
+
+    radarmax_archive$radarmax[i] <- nrow(radar_events)
+    radarmax_archive_events <- rbind(radarmax_archive_events, radar_events)
+  }
+
+#Prod dataset
+  radarmax_prod <- transmute(wells, ow_uid, smp_id, ow_suffix, radar_uid, prod_creditedssm_in, radarmax = NA)
+  radarmax_prod_events <- data.frame(NULL)
+  for(i in 1:nrow(radarmax_prod)){
+    radar_events <- filter(event_radar_prod, radar_uid == radarmax_prod$radar_uid[i])
+        print(paste(radarmax_prod$smp_id[i], "has", nrow(radar_events), "pre-exclusion events"))
 
 
+    #Filter for exclusions
+    if(radarmax_prod$smp_id[i] == '1-1-1'){
+      radar_events <- filter(radar_events, eventdataend < cutoff_11)
+    } else if(radarmax_prod$smp_id[i] == '439-1-1'){
+      radar_events <- filter(radar_events, eventdataend < cutoff_4391)
+    } else if(radarmax_prod$smp_id[i] == '179-5-1'){
+      radar_events <- filter(radar_events, 
+                             !(eventdatastart %within% exclusion_1795),
+                             !(eventdataend %within% exclusion_1795))
+  
+    }
+    
+    #Filter for design storms only
+        print(paste(radarmax_prod$smp_id[i], "has", nrow(radar_events), "post-exclusion events"))
+    radar_events <- filter(radar_events, eventdepth_in <= radarmax_prod$prod_creditedssm_in[i])
+        print(paste(radarmax_prod$smp_id[i], "has", nrow(radar_events), "post-exclusion design events"))
+
+    radarmax_prod$radarmax[i] <- nrow(radar_events)
+    radarmax_prod_events <- rbind(radarmax_prod_events, radar_events)
+
+  }
+  
+#How many per GI in Brian's archived metrics?
+  radar_wellcounts_brian <- group_by(archive_metrics_brian_apr03, ow_uid) %>%
+    summarize(count = n())
+  
+#compare with ark
+  comparison <- left_join(radarmax_archive, radar_wellcounts_brian)
+  
+#how many per GI in Prod?
+  comparison_prod <- left_join(radarmax_prod, radar_wellcounts_brian)
+
+```
+
+```{r empirically deriving brian's ssms, echo = FALSE}
+
+  ranges <- seq(0.01, 3.00, 0.01)
+
+  vuspvalues_brian <- tribble(~smp_id, ~n_vusp, ~mean_in_vusp, ~ot_vusp, ~percent_vusp,
+                              "1-1-1", 116, 0.5, 36, 0.31,
+                              "1-3-1", 149, 0.42, 4, 0.027,
+                              "488-5-1", 123, 0.43, 4, 0.033,
+                              "171-1-1", 132, 0.45, 8, 0.061,
+                              "179-5-1", 144, 0.41, 13, 0.09,
+                              "1006-1-1", 132, 0.44, 16, 0.121,
+                              "171-2-1", 146, 0.42, 21, 0.144,
+                              "439-1-1", 84, 0.39, 38, 0.452)
+
+  wells_gi <- filter(wells, grepl("GI", ow_suffix)) %>% select(ow_uid, smp_id, ow_suffix, radar_uid)
+  
+  iterators <- data.frame(smp_id = c(rep("1-1-1",length(ranges)), 
+                                    rep("1-3-1",length(ranges)), 
+                                    rep("488-5-1",length(ranges)), 
+                                    rep("171-1-1",length(ranges)), 
+                                    rep("179-5-1",length(ranges)), 
+                                    rep("1006-1-1",length(ranges)), 
+                                    rep("171-2-1",length(ranges)), 
+                                    rep("439-1-1",length(ranges))),
+                          ssm = rep(ranges, 8),
+                          stringsAsFactors = FALSE)
+  
+  wells_iterators <- left_join(wells_gi, iterators, by = "smp_id")
+  
+  summaries <- data.frame(NULL)
+  
+  for(i in 1:nrow(wells_iterators)){
+    keys <- filter(archive_metrics_brian, ow_uid == wells_iterators$ow_uid[i])
+    storms <- filter(event_radar_archive, radar_event_uid %in% keys$radar_event_uid)
+    
+    filtered_keys <- filter(storms, eventdepth_in <= wells_iterators$ssm[i])
+    
+    if(nrow(filtered_keys) == 0){ next }
+    
+    filtered_results <- filter(archive_metrics_brian_jun10, 
+                               ow_uid == wells_iterators$ow_uid[i],
+                               radar_event_uid %in% filtered_keys$radar_event_uid)
+    
+    summary <- group_by(filtered_results, ow_uid) %>%
+      summarize(n = n(),
+                mean_in = mean(filtered_keys$eventdepth_in),
+                ot = sum(overtop),
+                percent = ifelse(n() == 0, 0, ot/n()),
+                ssm = wells_iterators$ssm[i])
+    
+    summaries <- rbind(summaries, summary)
+    
+  }
+  
+  bleed <- left_join(wells_iterators, summaries) %>%
+    left_join(vuspvalues_brian)
+  
+  
+  
+```
+
+```{r Testing Brian's various files, echo = FALSE}
+
+  ranges <- seq(0.01, 3.00, 0.01)
+
+  vuspvalues_brian <- tribble(~smp_id, ~n_vusp, ~mean_in_vusp, ~ot_vusp, ~percent_vusp,
+                              "1-1-1", 116, 0.5, 36, 0.31,
+                              "1-3-1", 149, 0.42, 4, 0.027,
+                              "488-5-1", 123, 0.43, 4, 0.033,
+                              "171-1-1", 132, 0.45, 8, 0.061,
+                              "179-5-1", 144, 0.41, 13, 0.09,
+                              "1006-1-1", 132, 0.44, 16, 0.121,
+                              "171-2-1", 146, 0.42, 21, 0.144,
+                              "439-1-1", 84, 0.39, 38, 0.452)
+
+  wells_gi <- filter(wells, grepl("GI", ow_suffix)) %>% select(ow_uid, smp_id, ow_suffix)
+  
+  iterators <- data.frame(smp_id = c(rep("1-1-1",length(ranges)), 
+                                    rep("1-3-1",length(ranges)), 
+                                    rep("488-5-1",length(ranges)), 
+                                    rep("171-1-1",length(ranges)), 
+                                    rep("179-5-1",length(ranges)), 
+                                    rep("1006-1-1",length(ranges)), 
+                                    rep("171-2-1",length(ranges)), 
+                                    rep("439-1-1",length(ranges))),
+                          ssm = rep(ranges, 8),
+                          stringsAsFactors = FALSE)
+  
+  wells_iterators <- left_join(wells_gi, iterators, by = "smp_id")
+
+  searchfolder <- "//pwdoows/OOWS/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis"
+
+  testfolders <- list.files(path = searchfolder, pattern = "^\\d{3}[34]", include.dirs = TRUE, full.names=TRUE)
+  
+  folderframe <- data.frame(folder = testfolders,
+                            otfile = NA,
+                            summaryfile = NA)
+  
+  for(i in 1:nrow(folderframe)){
+    # gifile <- list.files(folderframe$folder[i], pattern = "gi_metrics", full.names=TRUE)
+    # folderframe$gifile[i] <- ifelse(length(gifile == 0), NA, gifile)
+
+    otfile <- list.files(folderframe$folder[i], pattern = "overtopping_data", full.names=TRUE)
+    folderframe$otfile[i] <- ifelse(length(otfile) == 0, NA, otfile)
+    
+    summaryfile <- list.files(folderframe$folder[i], pattern = "gi_design_storm_summary", full.names=TRUE)
+    folderframe$summaryfile[i] <- ifelse(length(summaryfile)==0, NA, summaryfile)
+  }
+  
+  folderframe <- folderframe[complete.cases(folderframe),]
+  
+  folderresults <- list(NULL)
+  
+  for(i in 1:nrow(folderframe)){
+    otresults <- read_csv(folderframe$otfile[i])
+    #giresults <- read_csv(folderframe$gifile[i])
+    folderresult <- list(NULL)
+    summaries <- data.frame(NULL)
+    
+    for(j in 1:nrow(wells_iterators)){
+      ot_well <- filter(otresults, ow_uid == wells_iterators$ow_uid[j])
+      ot_filtered <- filter(ot_well, eventdepth_in <= wells_iterators$ssm[j])
+      
+      if(length(ot_filtered) == 0){ next }
+      
+      summary <- group_by(ot_filtered, ow_uid) %>%
+        summarize(n = n(),
+                  mean_in = mean(eventdepth_in),
+                  ot = sum(overtop),
+                  percent = ifelse(n() == 0, 0, ot/n()),
+                  ssm = wells_iterators$ssm[j])
+      
+      summaries <- rbind(summaries, summary)
+    }
+    
+    folderresult[["SSMTest_ot"]] <- summaries
+
+    folderresult[["SummaryFile"]] <- read_csv(folderframe$summaryfile[i])
+
+    folderresults[[basename(folderframe$folder[i])]] <- folderresult
+        
+  }
+
+  onepointthree <- list(NULL)
+  for(i in 2:length(folderresults)){
+    a <- list(NULL)
+    a[[1]] <- filter(folderresults[[i]]$SSMTest_ot, ssm == 1.3) %>% arrange(percent)
+    a[[2]] <- folderresults[[i]]$SummaryFile %>% 
+      arrange(overtop_perc)
+    onepointthree[[names(folderresults)[i]]] <- a
+  }
+  
+```
+
+```{r brians calcs with correct ssm, echo = FALSE}
+
+ssm_archive <- dbGetQuery(mars_archive, "select system_id, sys_creditedstormsizemanaged_in from external.tbl_systembdv")
+
+brians_resultsfile <- folderframe$otfile[2]
+brians_results <- read_csv(brians_resultsfile)
+
+brianswells <- select(brians_results, ow_uid, smp_id) %>%
+  mutate(system_id = gsub("-1$", "", smp_id)) %>%
+  unique %>%
+  left_join(ssm_archive)
+
+summaries <- data.frame(NULL)
+
+for(i in 1:nrow(brianswells)){
+  ot_well <- filter(brians_results, ow_uid == brianswells$ow_uid[i])
+  ot_filtered <- filter(ot_well, eventdepth_in <= brianswells$sys_creditedstormsizemanaged_in[i])
+      
+  if(length(ot_filtered) == 0){ next }
+      
+    summary <- group_by(ot_filtered, ow_uid) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              overtop = sum(overtop),
+              percent = ifelse(n() == 0, 0, overtop/n() * 100),
+              ssm = brianswells$sys_creditedstormsizemanaged_in[i])
+      
+    summaries <- rbind(summaries, summary)
+}
+
+summaries #What brian's results would have been at VUSP if he had used the correct SSMs
+
+```
+
+```{r brians calcs with modern ssm, echo = FALSE}
+
+ssm_prod <- dbGetQuery(mars_prod, "select system_id, sys_creditedstormsizemanaged_in from external.tbl_systembdv")
+
+brians_resultsfile <- folderframe$otfile[2]
+brians_results <- read_csv(brians_resultsfile)
+
+brianswells_prod <- select(brians_results, ow_uid, smp_id) %>%
+  mutate(system_id = gsub("-1$", "", smp_id)) %>%
+  unique %>%
+  left_join(ssm_prod)
+
+summaries_prod <- data.frame(NULL)
+
+for(i in 1:nrow(brianswells_prod)){
+  ot_well <- filter(brians_results, ow_uid == brianswells_prod$ow_uid[i])
+  ot_filtered <- filter(ot_well, eventdepth_in <= brianswells_prod$sys_creditedstormsizemanaged_in[i])
+      
+  if(length(ot_filtered) == 0){ next }
+      
+    summary <- group_by(ot_filtered, ow_uid) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              overtop = sum(overtop),
+              percent = ifelse(n() == 0, 0, overtop/n() * 100),
+              ssm = brianswells_prod$sys_creditedstormsizemanaged_in[i])
+      
+    summaries_prod <- rbind(summaries, summary)
+}
+
+summaries_prod #What brian's results would have been at VUSP if he had used the SSMs on prod today
+
+```
+
+```{r OT on prod, echo = FALSE}
+  
+  #GI Overtopping
+  wells_gi <- filter(wells, grepl("GI", ow_suffix)) %>% 
+    left_join(deployment_depths_prod) %>%
+    select(ow_uid, smp_id, ow_suffix, radar_uid, deployment_depth_ft, prod_creditedssm_in)
+
+  overtopping_prod <- data.frame(NULL)
+
+  #For each site
+  for(i in 1:nrow(wells_gi)){
+  #for(i in 2){  
+    sitelevel <- filter(level_prod, ow_uid == wells_gi$ow_uid[i]) %>% arrange(dtime)
+    siteevents <- filter(event_radar_prod, radar_uid == wells_gi$radar_uid[i])
+    
+    #For each event
+    for(j in 1:nrow(siteevents)){
+    #for(j in 1){
+      #Start: event start time
+      event_start <- siteevents$eventdatastart[j]
+      
+      #End: Event end time + 24 hours or event N+1 start time, whichever is shorter
+      event_end <- ifelse(is.na(siteevents$eventdataend[j+1]), #If we are on the last event
+                          event_start+hours(24), #End the series 24 hours later
+                          min(event_start+hours(24), siteevents$eventdataend[j+1]))
+                            #If there are more events in the future, min of these two values
+      
+      #Filter to GI time series for that event
+      eventlevel <- filter(sitelevel, dtime %within% interval(event_start, event_end))
+      
+      #If there is no data, report that and skip
+      if(nrow(eventlevel) == 0){
+        event_results <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                                    radar_event_uid = siteevents$radar_event_uid[j],
+                                    eventdepth_in = siteevents$eventdepth_in[j],
+                                    event_start = event_start,
+                                    event_end = siteevents$eventdataend[j],
+                                    level_end = NA_POSIXct_,
+                                    overtop = NA,
+                                    max_level_ft = NA,
+                                    event_max = NA_POSIXct_,
+                                    deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                                    note = "No level data present in GI time series for this event")
+        
+        overtopping_prod <- rbind(overtopping_prod, event_results)
+        next
+      }
+      #browser()
+      #Call mars overtopping function with TS + GI deployment depth
+      event_results <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                            radar_event_uid = siteevents$radar_event_uid[j],
+                            eventdepth_in = siteevents$eventdepth_in[j],
+                            event_start = event_start,
+                            event_end = siteevents$eventdataend[j],
+                            level_end = event_end,
+                            overtop = marsOvertoppingCheck_bool(
+                              waterlevel_ft = eventlevel$level_ft,
+                              storage_depth_ft = wells_gi$deployment_depth_ft[i]),
+                            max_level_ft = max(eventlevel$level_ft),
+                            event_max = first(eventlevel$dtime[which(eventlevel$level_ft == max(eventlevel$level_ft))]),
+                            deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                            note = NA)
+      
+      overtopping_prod <- rbind(overtopping_prod, event_results)
+    }
+      
+  }
+
+  ot_full_prod <- left_join(overtopping_prod, wells_gi)
+  ot_full_prod_summary <- group_by(ot_full_prod, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop), na.rm = TRUE),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+  
+  ot_design_prod <- filter(ot_full_prod, !is.na(overtop), eventdepth_in <= prod_creditedssm_in)
+  ot_design_prod_summary <- group_by(ot_design_prod, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop)),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+  
+
+```
+
+```{r HD on prod, echo = FALSE}
+
+  #For each site
+    #For each event
+    #Filter to GI and OW time series for that event
+      #Start: event start time
+      #End: Event end time + 72 hours or event N+1 start time, whichever is shorter
+
+    #Find max water level for GI during that series
+    #Find corresponding level in OW at that time (if not exact, closest point in time)
+
+```
+
+```{r OT on archive reproducing Brian's bugs}
+  #GI Overtopping
+  wells_gi <- filter(wells, grepl("GI", ow_suffix)) %>% 
+    left_join(deployment_depths_archive) %>%
+    select(ow_uid, smp_id, ow_suffix, radar_uid, deployment_depth_ft, archive_creditedssm_in)
+
+  overtopping_archive <- data.frame(NULL)
+
+  #For each site
+  for(i in 1:nrow(wells_gi)){
+  #for(i in 1){  
+    sitelevel_archive <- filter(level_archive, ow_uid == wells_gi$ow_uid[i]) %>% arrange(dtime_est)
+    siteevents_archive <- filter(event_radar_archive, radar_uid == wells_gi$radar_uid[i])
+    
+    #Filter for exclusions
+    if(wells_gi$smp_id[i] == '1-1-1'){
+      siteevents_archive <- filter(siteevents_archive, eventdataend_edt < cutoff_11_archive)
+      siteevents_archive <- filter(siteevents_archive, eventdataend_edt < ymd('2020-09-11', tz = "EST")) #Reproduced bug: Brian's 1-1-1 GI1 data stops at 9/10/2023ot_ 
+    } else if(wells_gi$smp_id[i] == '439-1-1'){
+      siteevents_archive <- filter(siteevents_archive, eventdataend_edt < cutoff_4391_archive)
+    } else if(wells_gi$smp_id[i] == '179-5-1'){
+      siteevents_archive <- filter(siteevents_archive, 
+                             !(eventdatastart_edt %within% exclusion_1795_archive),
+                             !(eventdataend_edt %within% exclusion_1795_archive))
+  
+    }
+    
+    #For each event
+    for(j in 1:nrow(siteevents_archive)){
+      
+    #for(j in 5){
+      #Start: event start time
+      event_start_archive <- siteevents_archive$eventdatastart_edt[j]
+      
+      #End: Event end time + 24 hours or event N+1 start time, whichever is shorter
+      event_end_archive <- ifelse(is.na(siteevents_archive$eventdataend_edt[j+1]), #If we are on the last event
+                          event_start_archive+hours(24), #End the series 24 hours later
+                          min(event_start_archive+hours(24), siteevents_archive$eventdataend_edt[j+1]))
+                            #If there are more events in the future, min of these two values
+      
+      if(event_start_archive >= ymd('2024-05-01', tz = "EST")){
+        next #Reproduced bug: Data not available after April 30th 2023
+      }
+      
+      #Filter to GI time series for that event
+      eventlevel_archive <- filter(sitelevel_archive, dtime_est %within% interval(event_start_archive, event_end_archive))
+      
+      #If there is no data, report that and skip
+      if(nrow(eventlevel_archive) == 0){
+        event_results_archive <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                                    radar_event_uid = siteevents_archive$radar_event_uid[j],
+                                    eventdepth_in = siteevents_archive$eventdepth_in[j],
+                                    event_start = event_start_archive,
+                                    event_end = siteevents_archive$eventdataend_edt[j],
+                                    level_end = NA_POSIXct_,
+                                    overtop = NA,
+                                    max_level_ft = NA,
+                                    event_max = NA_POSIXct_,
+                                    deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                                    note = "No level data present in GI time series for this event")
+        
+        overtopping_archive <- rbind(overtopping_archive, event_results_archive)
+        next
+      }
+        
+      #Call mars overtopping function with TS + GI deployment depth
+      event_results_archive <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                            radar_event_uid = siteevents_archive$radar_event_uid[j],
+                            eventdepth_in = siteevents_archive$eventdepth_in[j],
+                            event_start = event_start_archive,
+                            event_end = siteevents_archive$eventdataend_edt[j],
+                            level_end = event_end,
+                            overtop = marsOvertoppingCheck_bool(
+                              waterlevel_ft = eventlevel_archive$level_ft,
+                              storage_depth_ft = wells_gi$deployment_depth_ft[i]),
+                            max_level_ft = max(eventlevel_archive$level_ft),
+                            event_max = first(eventlevel_archive$dtime_est[which(eventlevel_archive$level_ft == max(eventlevel_archive$level_ft))]),
+                            deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                            note = NA)
+      
+      overtopping_archive <- rbind(overtopping_archive, event_results_archive)
+      
+    }
+      
+  }
+  
+  ot_full_archive <- left_join(overtopping_archive, wells_gi)
+  ot_full_archive_summary <- group_by(ot_full_archive, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop), na.rm = TRUE),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+  
+  
+  ot_design_archive <- filter(ot_full_archive, !is.na(overtop), eventdepth_in <= 1.3)#archive_creditedssm_in)
+  ot_design_archive_summary <- group_by(ot_design_archive, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop)),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+    
+  
+  #plot them
+  for(i in 1:nrow(wells_gi)){
+    
+    reproduced_events <- filter(ot_full_archive, ow_uid == wells_gi$ow_uid[i]) %>% filter(!is.na(overtop))
+    
+    events_brian <- filter(archive_metrics_brian_apr03, ow_uid == wells_gi$ow_uid[i])
+    
+    scatter <- ggplot() +
+      geom_point(data = reproduced_events, 
+                 aes(x = event_start, y = eventdepth_in, shape = "Archive Reproduction", color = overtop)) + 
+      geom_point(data = events_brian, 
+                 aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Brian's Apr 03 CSV", color = overtop)) + 
+      scale_shape_manual(values = c(4, 20)) + 
+      geom_hline(yintercept = 1.3) +
+      ggtitle(paste(wells_gi$smp_id[i], wells_gi$ow_suffix[i], "Reproduced OT Events")) +
+      xlab("Rain Event Start Date") +
+      ylab("Rain Event Depth (inches)") +
+      labs(shape = "Data Source")+ 
+      theme(plot.title = element_text(size = 26),
+            axis.title = element_text(size = 26),
+            axis.text = element_text(size = 20),
+            legend.title = element_text(size = 26),
+            legend.text = element_text(size = 20)) +
+      guides(shape = guide_legend(override.aes = list(size = 5))) +
+      ylim(0, 1.5)
+    
+    
+    ggsave(paste(wells_gi$smp_id[i], wells_gi$ow_suffix[i], "Reproduced OT Events.png"),
+           scatter,
+           width = 12,
+           height = 8,
+           units = "in",
+           dpi = 300)
+    
+  }
+  
+  
+
+```
+
+```{r OT on archive using my code}
+  #GI Overtopping
+  wells_gi <- filter(wells, grepl("GI", ow_suffix)) %>% 
+    left_join(deployment_depths_archive) %>%
+    select(ow_uid, smp_id, ow_suffix, radar_uid, deployment_depth_ft, archive_creditedssm_in)
+
+  overtopping_archive <- data.frame(NULL)
+
+  #For each site
+  for(i in 1:nrow(wells_gi)){
+  #for(i in 1){  
+    sitelevel_archive <- filter(level_archive, ow_uid == wells_gi$ow_uid[i]) %>% arrange(dtime_est)
+    siteevents_archive <- filter(event_radar_archive, radar_uid == wells_gi$radar_uid[i])
+    
+    #For each event
+    for(j in 1:nrow(siteevents_archive)){
+    #for(j in 5){
+      #Start: event start time
+      event_start_archive <- siteevents_archive$eventdatastart_edt[j]
+      
+      #End: Event end time + 24 hours or event N+1 start time, whichever is shorter
+      event_end_archive <- ifelse(is.na(siteevents_archive$eventdataend_edt[j+1]), #If we are on the last event
+                          event_start_archive+hours(24), #End the series 24 hours later
+                          min(event_start_archive+hours(24), siteevents_archive$eventdataend_edt[j+1]))
+                            #If there are more events in the future, min of these two values
+      
+      #Filter to GI time series for that event
+      eventlevel_archive <- filter(sitelevel_archive, dtime_est %within% interval(event_start_archive, event_end_archive))
+      
+      #If there is no data, report that and skip
+      if(nrow(eventlevel_archive) == 0){
+        event_results_archive <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                                    radar_event_uid = siteevents_archive$radar_event_uid[j],
+                                    eventdepth_in = siteevents_archive$eventdepth_in[j],
+                                    event_start = event_start_archive,
+                                    event_end = siteevents_archive$eventdataend_edt[j],
+                                    level_end = NA_POSIXct_,
+                                    overtop = NA,
+                                    max_level_ft = NA,
+                                    event_max = NA_POSIXct_,
+                                    deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                                    note = "No level data present in GI time series for this event")
+        
+        overtopping_archive <- rbind(overtopping_archive, event_results_archive)
+        next
+      }
+        
+      #Call mars overtopping function with TS + GI deployment depth
+      event_results_archive <- data.frame(ow_uid = wells_gi$ow_uid[i],
+                            radar_event_uid = siteevents_archive$radar_event_uid[j],
+                            eventdepth_in = siteevents_archive$eventdepth_in[j],
+                            event_start = event_start,
+                            event_end = siteevents_archive$eventdataend_edt[j],
+                            level_end = event_end,
+                            overtop = marsOvertoppingCheck_bool(
+                              waterlevel_ft = eventlevel_archive$level_ft,
+                              storage_depth_ft = wells_gi$deployment_depth_ft[i]),
+                            max_level_ft = max(eventlevel_archive$level_ft),
+                            event_max = first(eventlevel_archive$dtime_est[which(eventlevel_archive$level_ft == max(eventlevel_archive$level_ft))]),
+                            deployment_depth_ft = wells_gi$deployment_depth_ft[i],
+                            note = NA)
+      
+      overtopping_archive <- rbind(overtopping_archive, event_results_archive)
+    }
+      
+  }
+  
+  ot_full_archive <- left_join(overtopping_archive, wells_gi)
+  ot_full_archive_summary <- group_by(ot_full_archive, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop), na.rm = TRUE),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+  
+  
+  ot_design_archive <- filter(ot_full_archive, !is.na(overtop), eventdepth_in <= archive_creditedssm_in)
+  ot_design_archive_summary <- group_by(ot_design_archive, smp_id) %>%
+    summarize(mean_in = mean(eventdepth_in),
+              n = n(),
+              ot = sum(as.logical(overtop)),
+              percent = ifelse(n() == 0, NA, ot/n)) %>%
+    arrange(percent)
+    
+
+```
+
+```{r Set size comparison, echo = FALSE}
+
+  extra_level <- data.frame(NULL)
+  
+  for(i in 1:nrow(wells)){
+  #for(i in 3){
+    well_archive <- filter(level_archive, ow_uid == wells$ow_uid[i])
+    
+    well_archive_bumped <- well_archive %>% 
+      mutate(dtime = with_tz(round_date(dtime_est, unit = "minute"), tzone = "America/New_York")) %>%
+      filter(!duplicated(dtime))
+    
+    well_prod <- filter(level_prod, ow_uid == wells$ow_uid[i])
+    
+    overlap <- left_join(well_prod, well_archive_bumped, by = c("dtime", "ow_uid", "smp_id", "ow_suffix"), suffix = c(".prod", ".archive"))
+    
+    exceedence <- filter(overlap, is.na(level_ft.archive))
+    
+    extra_level <- rbind(extra_level, exceedence)
+  }
+
+  extra_level_summary <- extra_level %>% 
+    group_by(ow_uid, smp_id, ow_suffix) %>% 
+    summarize(n = n(), 
+              first = first(dtime),
+              last = last(dtime)) %>%
+    arrange(smp_id)
+  
+  ggplot(data = extra_level, aes(x = dtime, y = level_ft.prod, color = ow_uid)) + geom_point()
+  
+  #radar events
+  
+  
+  
+  for(i in 1:nrow(wells)){
+    events_archive <- filter(event_radar_archive, radar_uid == wells$radar_uid[i]) #No need to bump, they are responsive to DST already
+    
+    events_prod <- filter(event_radar_prod, radar_uid == wells$radar_uid[i])
+    
+    events_brian <- filter(archive_metrics_brian_apr03, radar_uid == wells$radar_uid[i])
+    
+    scatter <- ggplot() +
+      geom_point(data = events_prod, 
+                 aes(x = eventdatastart, y = eventdepth_in, shape = "Production DB"),
+                 color = "#D55E00") + 
+      geom_point(data = events_archive, 
+                 aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Archive DB"), 
+                 color = "#009E73") + 
+      # geom_point(data = events_brian, 
+      #            aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Brian's VUSP CSV"),
+      #            color = "blue") + #"#0072B2"
+      geom_hline(yintercept = wells$prod_creditedssm_in[i]) +
+      ggtitle(paste(wells$smp_id[i], wells$ow_suffix[i], "Radar Events: 2024-04-05 Archive vs Prod")) +
+      xlab("Rain Event Start Date") +
+      ylab("Rain Event Depth (inches)") +
+      labs(shape = "Data Source")+ 
+      theme(plot.title = element_text(size = 26),
+            axis.title = element_text(size = 26),
+            axis.text = element_text(size = 20),
+            legend.title = element_text(size = 26),
+            legend.text = element_text(size = 20)) +
+      guides(shape = guide_legend(override.aes = list(size = 5)))
+    
+    
+    ggsave(paste(wells$smp_id[i], wells$ow_suffix[i], "Radar Events.png"),
+           scatter,
+           width = 12,
+           height = 8,
+           units = "in",
+           dpi = 300)
+    
+    scatter_zoom <- scatter + 
+      scale_x_datetime(date_labels = "%b %Y", 
+                       limits = c(ymd_hms('2023-01-01 00:00:00'), ymd_hms('2024-01-01 00:00:00')))
+    
+      ggsave(paste(wells$smp_id[i], wells$ow_suffix[i], "2023 Radar Events.png"),
+           scatter_zoom,
+           width = 12,
+           height = 8,
+           units = "in",
+           dpi = 300)
+  }
 
 ```
