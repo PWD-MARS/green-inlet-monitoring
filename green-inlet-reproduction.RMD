@@ -237,11 +237,16 @@ boundaryquery <- paste0("select ow_uid, min(dtime) as mintime, max(dtime) as max
               group by ow_uid')
 boundaries <- dbGetQuery(marsDBCon, boundaryquery)
 
+#Global start and end time for calcs
+  vuspstart <- ymd_hms('2019-01-01 00:00:00', tz = "America/New_York")
+  vuspend <- ymd_hms('2024-01-01 00:00:00', tz = "America/New_York")
 
 #Unified metrics table for GI-type well calculations
 calctable <- left_join(inlets, cth, by = "ow_uid") %>%
   select(-start_dtime, -end_dtime) %>%
-  left_join(boundaries, by = "ow_uid")
+  left_join(boundaries, by = "ow_uid") %>%
+  rowwise() %>%
+  mutate(maxtime = min(vuspend, maxtime)) #Cut off data at VUSP cutoff
 
 #Date Overrides
 #System 1-1 short circuiting observed on 11/13/2020, so cut data off here
@@ -318,6 +323,9 @@ trap_status <- inlet_type %>% dplyr::select(ow_uid, Trap, drainage_area_sf)
 #Design storm sizes
 stormsizemanaged <- select(sys_char, smp_id, stormsizemanaged_in = `Storm.Size.Managed.(in)`)
 
+#Attach storm size managed to welltable and calctable
+welltable <- welltable %>% left_join(stormsizemanaged)
+calctable <- calctable %>% left_join(stormsizemanaged)
 
 ```
 
@@ -338,7 +346,7 @@ for(i in 1:nrow(calctable)){
                                             "and dtime >= '", calctable$mintime[i], "'",
                                             "and dtime <= '", calctable$maxtime[i], "'"))
 
- #Pull the rain events for the site
+ #Pull the rain events for the site, but only design storms
  siteevents <- dbGetQuery(marsDBCon, paste0("select * from data.tbl_radar_event where
                                              radar_uid = ", calctable$radar_uid[i])) %>%
     filter(eventdatastart >= calctable$mintime[i],
@@ -493,7 +501,7 @@ headdiffs_plot <- left_join(headdiffs, rain_event_metadata, by = "radar_event_ui
 
 #For now, since we don't have updated work orders for pipe jetting, we will filter our events to those same ones from Villanova's date range
 
-headdiffs_villanova <- filter(headdiffs_plot, eventdatastart <= ymd('2023-01-01', tz = "America/New_York")) %>%
+headdiffs_villanova <- filter(headdiffs_plot, eventdatastart <= ymd('2024-01-01', tz = "America/New_York")) %>%
   filter(eventdepth_in <= stormsizemanaged_in)
 
 villanova_table <- headdiffs_villanova %>%
