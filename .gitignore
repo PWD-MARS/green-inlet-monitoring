@@ -4,3 +4,7 @@
 .Ruserdata
 plots/*
 *.html
+*.png
+*.rdata
+*.pptx
+*.csv
