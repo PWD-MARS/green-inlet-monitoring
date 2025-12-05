@@ -339,27 +339,27 @@ for(i in 1:nrow(calctable)){
       
       ## 2.3.3 Plot the event ----
         dir.create("otplots", showWarnings = FALSE)
-      #   eventplot <- marsCombinedPlot(event = event$gage_event_uid,
-      #      structure_name = paste(calctable$smp_id[i], calctable$ow_suffix[i]),
-      #      obs_datetime = eventlevel$dtime_est,
-      #      obs_level_ft = eventlevel$level_ft,
-      #      storage_depth_ft = calctable$d_g_ft[i],
-      #      rainfall_datetime = eventrain$dtime_edt,
-      #      rainfall_in = eventrain$rainfall_in)
-      #   
-      #   
-      #   plotname <- paste(calctable$smp_id[i], 
-      #                     calctable$ow_suffix[i], 
-      #                     event$gage_event_uid,
-      #                     "archive",
-      #                     sep = "_")
-      #   
-      #   ggsave(filename = paste0(plotname, ".png"),
-      #          plot = eventplot,
-      #          path = "otplots",
-      #          width = 12,
-      #          height = 8,
-      #          units = "in")
+        eventplot <- marsCombinedPlot(event = event$gage_event_uid,
+           structure_name = paste(calctable$smp_id[i], calctable$ow_suffix[i]),
+           obs_datetime = eventlevel$dtime_est,
+           obs_level_ft = eventlevel$level_ft,
+           storage_depth_ft = calctable$d_g_ft[i],
+           rainfall_datetime = eventrain$dtime_edt,
+           rainfall_in = eventrain$rainfall_in)
+
+
+        plotname <- paste(calctable$smp_id[i],
+                          calctable$ow_suffix[i],
+                          event$gage_event_uid,
+                          "archive",
+                          sep = "_")
+
+        ggsave(filename = paste0(plotname, ".png"),
+               plot = eventplot,
+               path = "otplots",
+               width = 12,
+               height = 8,
+               units = "in")
       
     }
     
