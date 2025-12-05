@@ -747,6 +747,10 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
     
     events_brian <- filter(archive_metrics_brian_apr03, ow_uid == wells_gi$ow_uid[i])
     
+    label_position_x <- ifelse(nrow(reproduced_events) %% 2 == 0, 
+                               nrow(reproduced_events)*3/4, 
+                               (nrow(reproduced_events) + 1)*3/4)
+    
     scatter <- ggplot() +
       geom_point(data = reproduced_events, 
                  aes(x = event_start, y = eventdepth_in, shape = "Archive Reproduction", color = overtop)) + 
@@ -754,6 +758,8 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
                  aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Brian's Apr 03 CSV", color = overtop)) + 
       scale_shape_manual(values = c(4, 20)) + 
       geom_hline(yintercept = 1.3) +
+      geom_label(data = data.frame(x = reproduced_events$event_start[label_position_x], y = 1.3, label = "Erroneous 1.3in Design Storm"),
+                 aes(x = x, y = y, label = label)) +
       ggtitle(paste(wells_gi$smp_id[i], wells_gi$ow_suffix[i], "Reproduced OT Events")) +
       xlab("Rain Event Start Date") +
       ylab("Rain Event Depth (inches)") +
@@ -908,6 +914,10 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
     
     events_brian <- filter(archive_metrics_brian_apr03, radar_uid == wells$radar_uid[i])
     
+    label_position_x <- ifelse(nrow(events_archive) %% 2 == 0, 
+                               nrow(events_archive)*3/4, 
+                               (nrow(events_archive) + 1)*3/4)
+    
     scatter <- ggplot() +
       geom_point(data = events_prod, 
                  aes(x = eventdatastart, y = eventdepth_in, shape = "Production DB"),
@@ -915,10 +925,10 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
       geom_point(data = events_archive, 
                  aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Archive DB"), 
                  color = "#009E73") + 
-      # geom_point(data = events_brian, 
-      #            aes(x = eventdatastart_edt, y = eventdepth_in, shape = "Brian's VUSP CSV"),
-      #            color = "blue") + #"#0072B2"
-      geom_hline(yintercept = wells$prod_creditedssm_in[i]) +
+      scale_shape_manual(values = c(4, 20)) + 
+      geom_hline(yintercept = 1.3) +
+      geom_label(data = data.frame(x = events_archive$eventdatastart_edt[label_position_x], y = 1.3, label = "Erroneous 1.3in Design Storm"),
+                 aes(x = x, y = y, label = label)) +
       ggtitle(paste(wells$smp_id[i], wells$ow_suffix[i], "Radar Events: 2024-04-05 Archive vs Prod")) +
       xlab("Rain Event Start Date") +
       ylab("Rain Event Depth (inches)") +
@@ -933,7 +943,7 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
     
     ggsave(paste(wells$smp_id[i], wells$ow_suffix[i], "Radar Events.png"),
            scatter,
-           width = 12,
+           width = 16,
            height = 8,
            units = "in",
            dpi = 300)
@@ -944,7 +954,7 @@ summaries_prod #What brian's results would have been at VUSP if he had used the 
     
       ggsave(paste(wells$smp_id[i], wells$ow_suffix[i], "2023 Radar Events.png"),
            scatter_zoom,
-           width = 12,
+           width = 16,
            height = 8,
            units = "in",
            dpi = 300)
