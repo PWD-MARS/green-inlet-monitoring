@@ -167,6 +167,9 @@ for(i in 1:nrow(results)){
                             end_date = "2025-12-31",
                             data_interval = "5 mins")
   
+  #Round to 4th decimal place to match the precision of what's in excel
+  baro <- mutate(baro, baro_psi = round(baro_psi, 4))
+  
   for(i in 1:nrow(results)){
     barodata <- pullBaroData(results$filepath[i])
     
