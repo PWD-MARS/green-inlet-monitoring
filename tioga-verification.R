@@ -53,6 +53,11 @@ pullCWLData <- function(excelfile){
   datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
+  #Filter to only records with valid water level calculations
+  #Corrected Water Depth in column 10
+  datasheet <- filter(datasheet, !is.na(datasheet$...10))
+  
+  
   #dtime in column D, pressure in column E, temperature in column F
   rawdata <- data.frame(rawdtime = unlist(datasheet[2:rows, 4]),
                         rawpres_psi = unlist(datasheet[2:rows, 5]),
@@ -80,6 +85,10 @@ pullBaroData <- function(excelfile){
   datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
+  #Filter to only records with valid water level calculations
+    #Corrected Water Depth in column 10
+  datasheet <- filter(datasheet, !is.na(datasheet$...10))
+  
   #dtime in column B, pressure in column C
   rawdata = data.frame(rawdtime = unlist(datasheet[2:rows, 2]),
                        rawpres_psi = unlist(datasheet[2:rows, 3]))
@@ -101,6 +110,30 @@ pullBaroData <- function(excelfile){
   longdata
 }
 
+pullStandardDtimeData <- function(excelfile){
+  #Sheet 3 is the data sheet
+  datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
+  rows <- nrow(datasheet) #variable for readability
+  
+  #Standard dtime in column A
+  rawdata = data.frame(rawdtime = unlist(datasheet[2:rows, 2]))
+  
+  #Process data for checks later
+  longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
+    transmute(dtime_excel = as.numeric(rawdtime)) |> #Excel floating point
+    #Convert to POSIX date with methods here
+    #https://stackoverflow.com/questions/19172632/converting-excel-datetime-serial-number-to-r-datetime
+    mutate(dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
+                                  origin = "1899-12-30",
+                                  tz = "GMT")) |> #GMT TZ required to count from correct origin
+    mutate(dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
+    select(-dtime_raw)
+  
+  
+  rownames(longdata) <- NULL
+  longdata
+}
+
 #Data import function, derived from Jon's code here
 #https://github.com/PWD-MARS/shinyDownloadTools/issues/19
 csv_import <- function(filepath){
@@ -111,10 +144,13 @@ csv_import <- function(filepath){
                               skip = 1,
                               col_select = 2:4,
                               show_col_types=FALSE,
-                              name_repair = "unique_quiet") %>%
+                              name_repair = "unique_quiet") |>
     suppressWarnings() #Suppress problems() warnings that don't matter to us
   
   names(file_raw) <- c("dtime_raw", "pres_psi", "temp_f")
+  
+  #Filter out any records without samples
+  file_raw <- file_raw[complete.cases(file_raw),]
   
   file_parsed <- file_raw %>%
     mutate(dtime = parse_date_time(dtime_raw, c("%m/%d/%y %I:%M:%S %p",
@@ -130,7 +166,12 @@ csv_import <- function(filepath){
 results <- data.frame(filepath = excelsheets,
                       correction = NA,
                       barocheck = NA,
-                      csvcheck = NA)
+                      csvcheck = NA,
+                      standardbaromatch = NA,
+                      standardlevelmatch = NA,
+                      barolevelmatch = NA,
+                      barouniformity = NA,
+                      leveluniformity = NA)
 
 #Pull correction factors
 for(i in 1:nrow(results)){
@@ -143,9 +184,19 @@ for(i in 1:nrow(results)){
   #Pull all CSV data and assemble it
   csvdata <- data.frame(NULL)
   for(i in 1:length(csvsheets)){
-    filedata <- csv_import(csvsheets[i])
+    filedata <- csv_import(csvsheets[i]) |>
+      mutate(path = paste(basename(dirname(csvsheets[i])),
+                          basename(csvsheets[i]),
+                          sep = "/")) #append abbreviated filepath
+                                      #to check for duplicate file reads
     csvdata <- rbind(csvdata, filedata) |>
       arrange(dtime)
+  }
+  
+  #Do we have any duplicate data in the raw data files?
+  dupes <- duplicated(csvdata$dtime)
+  if(any(dupes)){
+    stop("Fatal error: Duplicate datetimes in CSV data.")
   }
   
   for(i in 1:nrow(results)){
@@ -180,4 +231,5 @@ for(i in 1:nrow(results)){
     
     results$barocheck[i] <- max(baro_join$baro_diff)
   }
+
   
