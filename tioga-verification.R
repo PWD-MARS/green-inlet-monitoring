@@ -1,5 +1,6 @@
 library(readxl)
 library(readr)
+library(tidyr)
 library(dplyr)
 library(lubridate)
 library(pwdgsi)
@@ -34,14 +35,14 @@ csvsheets <- list.files(path = csvfolder,
   # Correction Factor
 pullCorrectionFactor <- function(excelfile){
   #Sheet 1 is the site info sheet
-  infosheet = suppressMessages(readxl::read_xlsx(excelfile, sheet = 1))
+  infosheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = 1))
   
   #Variable names in column 4, values in column 5
-  longdata = data.frame(varname = unlist(infosheet[5:8, 4]),
+  longdata <- data.frame(varname = unlist(infosheet[5:8, 4]),
                         value = as.numeric(unlist(infosheet[5:8, 5])))
   
   #Transpose vertical to horizontal
-  widedata = pivot_wider(longdata,
+  widedata <- pivot_wider(longdata,
                         names_from = varname)
   widedata
   
@@ -49,11 +50,11 @@ pullCorrectionFactor <- function(excelfile){
 
 pullCWLData <- function(excelfile){
   #Sheet 3 is the data sheet
-  datasheet = suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
+  datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
   #dtime in column D, pressure in column E, temperature in column F
-  rawdata = data.frame(rawdtime = unlist(datasheet[2:rows, 4]),
+  rawdata <- data.frame(rawdtime = unlist(datasheet[2:rows, 4]),
                         rawpres_psi = unlist(datasheet[2:rows, 5]),
                         rawtemp_f = unlist(datasheet[2:rows, 6]))
   
@@ -76,7 +77,7 @@ pullCWLData <- function(excelfile){
 
 pullBaroData <- function(excelfile){
   #Sheet 3 is the data sheet
-  datasheet = suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
+  datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
   #dtime in column B, pressure in column C
