@@ -58,23 +58,35 @@ pullCWLData <- function(excelfile){
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
   
-  #dtime in column D, pressure in column E, temperature in column F
-  rawdata <- data.frame(rawdtime = unlist(datasheet[2:rows, 4]),
+  #standard dtime in column A, dtime in column D, 
+  # pressure in column E, temperature in column F
+  rawdata <- data.frame(rawstandard = unlist(datasheet[2:rows, 1]),
+                        rawdtime = unlist(datasheet[2:rows, 4]),
                         rawpres_psi = unlist(datasheet[2:rows, 5]),
                         rawtemp_f = unlist(datasheet[2:rows, 6]))
   
   #Process data for checks later
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
-    transmute(dtime_excel = as.numeric(rawdtime), #Excel floating point
+    transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
+              dtime_excel = as.numeric(rawdtime), #Excel floating point
               pres_psi = round(as.numeric(rawpres_psi), 4), #Round to 4 decimals
               temp_f = round(as.numeric(rawtemp_f), 4)) %>%
     #Convert to POSIX date with methods here
     #https://stackoverflow.com/questions/19172632/converting-excel-datetime-serial-number-to-r-datetime
-    mutate(dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
+    mutate(standard_raw = as.POSIXct(standard_excel * (60*60*24),
+                                     origin = "1899-12-30",
+                                     tz = "GMT"),
+           dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
                               origin = "1899-12-30",
                               tz = "GMT")) |> #GMT TZ required to count from correct origin
-    mutate(dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
-    select(-dtime_raw)
+    mutate(standard = round.POSIXt(standard_raw, units = "mins"),
+           dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
+    select(-standard_raw, -dtime_raw)
+  
+  #Check for dupes
+  if(any(duplicated(longdata$standard)) | any(duplicated(longdata$dtime))){
+    browser()
+  }
   
     rownames(longdata) <- NULL
     longdata
@@ -89,46 +101,32 @@ pullBaroData <- function(excelfile){
     #Corrected Water Depth in column 10
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
-  #dtime in column B, pressure in column C
-  rawdata = data.frame(rawdtime = unlist(datasheet[2:rows, 2]),
+  #Standard dtime in column A, dtime in column B, pressure in column C
+  rawdata = data.frame(rawstandard = unlist(datasheet[2:rows, 1]),
+                       rawdtime = unlist(datasheet[2:rows, 2]),
                        rawpres_psi = unlist(datasheet[2:rows, 3]))
   
   #Process data for checks later
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
-    transmute(dtime_excel = as.numeric(rawdtime), #Excel floating point
+    transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
+              dtime_excel = as.numeric(rawdtime), #Excel floating point
               pres_psi = round(as.numeric(rawpres_psi), 4)) |> #Round to 4 decimals
     #Convert to POSIX date with methods here
     #https://stackoverflow.com/questions/19172632/converting-excel-datetime-serial-number-to-r-datetime
-    mutate(dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
+    mutate(standard_raw = as.POSIXct(standard_excel * (60*60*24),
+                                     origin = "1899-12-30",
+                                     tz = "GMT"),
+           dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
                               origin = "1899-12-30",
                               tz = "GMT")) |> #GMT TZ required to count from correct origin
-    mutate(dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
-    select(-dtime_raw)
+    mutate(standard = round.POSIXt(standard_raw, units = "mins"),
+           dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
+    select(-standard_raw, -dtime_raw)
 
-  
-  rownames(longdata) <- NULL
-  longdata
-}
-
-pullStandardDtimeData <- function(excelfile){
-  #Sheet 3 is the data sheet
-  datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
-  rows <- nrow(datasheet) #variable for readability
-  
-  #Standard dtime in column A
-  rawdata = data.frame(rawdtime = unlist(datasheet[2:rows, 2]))
-  
-  #Process data for checks later
-  longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
-    transmute(dtime_excel = as.numeric(rawdtime)) |> #Excel floating point
-    #Convert to POSIX date with methods here
-    #https://stackoverflow.com/questions/19172632/converting-excel-datetime-serial-number-to-r-datetime
-    mutate(dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
-                                  origin = "1899-12-30",
-                                  tz = "GMT")) |> #GMT TZ required to count from correct origin
-    mutate(dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
-    select(-dtime_raw)
-  
+  #Check for dupes
+  if(any(duplicated(longdata$standard)) | any(duplicated(longdata$dtime))){
+    browser()
+  }
   
   rownames(longdata) <- NULL
   longdata
@@ -199,6 +197,17 @@ for(i in 1:nrow(results)){
     stop("Fatal error: Duplicate datetimes in CSV data.")
   }
   
+#Check baro data
+  #Pull appropriate baro range for the entire series
+  baro <- marsFetchBaroData(poolConn, target_id = "171-2-1",
+                            start_date = "2020-01-01",
+                            end_date = "2025-12-31",
+                            data_interval = "5 mins")
+  
+  #Round to 4th decimal place to match the precision of what's in excel
+  baro <- mutate(baro, baro_psi = round(baro_psi, 4))
+  
+  
   for(i in 1:nrow(results)){
     cwldata <- pullCWLData(results$filepath[i])
     
@@ -210,19 +219,26 @@ for(i in 1:nrow(results)){
     
     results$csvcheck[i] <- all(all(cwl_join$pres_equal), 
                                all(cwl_join$temp_equal))
-  }
-  
-#Check baro data
-  #Pull appropriate baro range for the entire series
-  baro <- marsFetchBaroData(poolConn, target_id = "171-2-1",
-                            start_date = "2020-01-01",
-                            end_date = "2025-12-31",
-                            data_interval = "5 mins")
-  
-  #Round to 4th decimal place to match the precision of what's in excel
-  baro <- mutate(baro, baro_psi = round(baro_psi, 4))
-  
-  for(i in 1:nrow(results)){
+    
+    #Check level uniformity
+    #Shift the dtime one space
+    level_lag <- lag(cwldata$dtime)
+    
+    #Subtract to get a difftime - the interval between each element
+    level_interval <- cwldata$dtime - level_lag
+    
+    #A uniform dtime interval would mean that the smallest difftime present
+    # would be the only one found in the whole set - e.g. everything is 5 mins
+    #na.rm = TRUE because the first difftime will be NA since there is not
+    # a 0th element to compare it to
+    results$leveluniformity[i] <- all(level_interval == min(level_interval,
+                                                            na.rm = TRUE),
+                                      na.rm = TRUE) 
+    
+    #Compare baro dtime with standard dtime
+    results$standardlevelmatch[i] <- all(cwldata$standard == cwldata$dtime)
+    
+    #Check baro data
     barodata <- pullBaroData(results$filepath[i])
     
     baro_join <- left_join(barodata, baro, 
@@ -230,6 +246,34 @@ for(i in 1:nrow(results)){
       mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
     
     results$barocheck[i] <- max(baro_join$baro_diff)
+    
+    #Check baro uniformity
+      #Shift the dtime one space
+      baro_lag <- lag(barodata$dtime)
+      
+      #Subtract to get a difftime - the interval between each element
+      baro_interval <- barodata$dtime - baro_lag
+      
+      #A uniform dtime interval would mean that the smallest difftime present
+      # would be the only one found in the whole set - e.g. everything is 5 mins
+        #na.rm = TRUE because the first difftime will be NA since there is not
+        # a 0th element to compare it to
+      results$barouniformity[i] <- all(baro_interval == min(baro_interval,
+                                                            na.rm = TRUE),
+                                       na.rm = TRUE) 
+    
+    #Compare baro dtime with standard dtime
+      results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
+      
+    #Unite baro and level and check that
+      joined <- left_join(barodata, cwldata, 
+                          by = c("standard_excel", "standard"),
+                          suffix = c(".baro", ".cwl"))
+      
+      #Compare baro dtime and level dtime
+      results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
   }
 
-  
+results$filepath <- paste(basename(dirname(results$filepath),
+                                   basename(filepath),
+                                   sep = "/"))
