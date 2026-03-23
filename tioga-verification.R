@@ -160,23 +160,6 @@ csv_import <- function(filepath){
   file_parsed
 }
 
-#Data structure for results
-results <- data.frame(filepath = excelsheets,
-                      correction = NA,
-                      barocheck = NA,
-                      csvcheck = NA,
-                      standardbaromatch = NA,
-                      standardlevelmatch = NA,
-                      barolevelmatch = NA,
-                      barouniformity = NA,
-                      leveluniformity = NA)
-
-#Pull correction factors
-for(i in 1:nrow(results)){
-  infosheet <- pullCorrectionFactor(results$filepath[i])
-  results$correction[i] <- infosheet$`Correction factor`
-}
-
 
 #Check CWL data
   #Pull all CSV data and assemble it
@@ -207,8 +190,24 @@ for(i in 1:nrow(results)){
   #Round to 4th decimal place to match the precision of what's in excel
   baro <- mutate(baro, baro_psi = round(baro_psi, 4))
   
+  #Data structure for results
+  results <- data.frame(filepath = excelsheets,
+                        correction = NA,
+                        barocheck = NA,
+                        csvcheck = NA,
+                        standardbaromatch = NA,
+                        standardlevelmatch = NA,
+                        barolevelmatch = NA,
+                        barouniformity = NA,
+                        leveluniformity = NA)
+  
+  #Pull correction factors
   
   for(i in 1:nrow(results)){
+    #Pull correction factors
+    infosheet <- pullCorrectionFactor(results$filepath[i])
+    results$correction[i] <- infosheet$`Correction factor`
+    
     cwldata <- pullCWLData(results$filepath[i])
     
     cwl_join <- left_join(cwldata, csvdata, 
@@ -274,6 +273,7 @@ for(i in 1:nrow(results)){
       results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
   }
 
-results$filepath <- paste(basename(dirname(results$filepath),
-                                   basename(filepath),
-                                   sep = "/"))
+results$filepath <- paste(basename(dirname(results$filepath)),
+                                   basename(results$filepath),
+                                   sep = "/")
+
