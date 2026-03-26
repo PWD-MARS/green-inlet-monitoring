@@ -35,37 +35,42 @@ csvsheets <- list.files(path = csvfolder,
   # Correction Factor
 pullCorrectionFactor <- function(excelfile){
   #Sheet 1 is the site info sheet
+  ####  Why are we not using range?
   infosheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = 1))
   
   #Variable names in column 4, values in column 5
+  #### Why we're using unlist?
   longdata <- data.frame(varname = unlist(infosheet[5:8, 4]),
                         value = as.numeric(unlist(infosheet[5:8, 5])))
-  
+
   #Transpose vertical to horizontal
   widedata <- pivot_wider(longdata,
                         names_from = varname)
   widedata
-  
+
 }
 
 pullCWLData <- function(excelfile){
   #Sheet 3 is the data sheet
+  #### Why not use col_names and col_types?
   datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
-  #Filter to only records with valid water level calculations
+  #Filter to only records with valid corrected water level calculations
   #Corrected Water Depth in column 10
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
   
-  #standard dtime in column A, dtime in column D, 
+  # standard dtime in column A, dtime in column D,
   # pressure in column E, temperature in column F
+  ### Why are we unlisting?
   rawdata <- data.frame(rawstandard = unlist(datasheet[2:rows, 1]),
                         rawdtime = unlist(datasheet[2:rows, 4]),
                         rawpres_psi = unlist(datasheet[2:rows, 5]),
                         rawtemp_f = unlist(datasheet[2:rows, 6]))
-  
+
   #Process data for checks later
+  #### Why filter complete cases if we are only keeping valid corrected water depths?
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
     transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
               dtime_excel = as.numeric(rawdtime), #Excel floating point
@@ -79,15 +84,18 @@ pullCWLData <- function(excelfile){
            dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
                               origin = "1899-12-30",
                               tz = "GMT")) |> #GMT TZ required to count from correct origin
+    # As previously discussed, it is not recommended to use round.POSIXt as it is a method. Please use round()
+    # I would recommend keeping it as POSIXct, so you can either wrap it with as.POSIXct or round_date() from lubridate
     mutate(standard = round.POSIXt(standard_raw, units = "mins"),
            dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
     select(-standard_raw, -dtime_raw)
-  
+
   #Check for dupes
+  #### Duplicated 
   if(any(duplicated(longdata$standard)) | any(duplicated(longdata$dtime))){
     browser()
   }
-  
+
     rownames(longdata) <- NULL
     longdata
 }
@@ -105,7 +113,7 @@ pullBaroData <- function(excelfile){
   rawdata = data.frame(rawstandard = unlist(datasheet[2:rows, 1]),
                        rawdtime = unlist(datasheet[2:rows, 2]),
                        rawpres_psi = unlist(datasheet[2:rows, 3]))
-  
+
   #Process data for checks later
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
     transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
@@ -127,7 +135,7 @@ pullBaroData <- function(excelfile){
   if(any(duplicated(longdata$standard)) | any(duplicated(longdata$dtime))){
     browser()
   }
-  
+
   rownames(longdata) <- NULL
   longdata
 }
@@ -138,6 +146,7 @@ csv_import <- function(filepath){
   
   # I have modified the one file with an extra line that needed to be skipped
   # by deleting that line on disk, so now we don't need to create an exception
+  #### Since these are standard files, why are we not using col_names and col_types?
   file_raw <- readr::read_csv(file = filepath,
                               skip = 1,
                               col_select = 2:4,
@@ -146,10 +155,10 @@ csv_import <- function(filepath){
     suppressWarnings() #Suppress problems() warnings that don't matter to us
   
   names(file_raw) <- c("dtime_raw", "pres_psi", "temp_f")
-  
+
   #Filter out any records without samples
   file_raw <- file_raw[complete.cases(file_raw),]
-  
+
   file_parsed <- file_raw %>%
     mutate(dtime = parse_date_time(dtime_raw, c("%m/%d/%y %I:%M:%S %p",
                                                     "%m/%d/%Y %H:%M:%S",
@@ -183,11 +192,12 @@ csv_import <- function(filepath){
 #Check baro data
   #Pull appropriate baro range for the entire series
   baro <- marsFetchBaroData(poolConn, target_id = "171-2-1",
-                            start_date = "2020-01-01",
+                            start_date = "2020-10-05",
                             end_date = "2025-12-31",
                             data_interval = "5 mins")
   
   #Round to 4th decimal place to match the precision of what's in excel
+  #### Please use tidy syntax
   baro <- mutate(baro, baro_psi = round(baro_psi, 4))
   
   #Data structure for results
@@ -203,74 +213,74 @@ csv_import <- function(filepath){
   
   #Pull correction factors
   
-  for(i in 1:nrow(results)){
+  for(i in 1:2){
     #Pull correction factors
     infosheet <- pullCorrectionFactor(results$filepath[i])
-    results$correction[i] <- infosheet$`Correction factor`
-    
-    cwldata <- pullCWLData(results$filepath[i])
-    
-    cwl_join <- left_join(cwldata, csvdata, 
-                          by = "dtime", 
-                          suffix = c(".excel",".csv")) |>
-      mutate(pres_equal = pres_psi.excel == pres_psi.csv, #NAs will return NA
-             temp_equal = temp_f.excel == temp_f.csv)     #and will fail check
-    
-    results$csvcheck[i] <- all(all(cwl_join$pres_equal), 
-                               all(cwl_join$temp_equal))
-    
-    #Check level uniformity
-    #Shift the dtime one space
-    level_lag <- lag(cwldata$dtime)
-    
-    #Subtract to get a difftime - the interval between each element
-    level_interval <- cwldata$dtime - level_lag
-    
-    #A uniform dtime interval would mean that the smallest difftime present
-    # would be the only one found in the whole set - e.g. everything is 5 mins
-    #na.rm = TRUE because the first difftime will be NA since there is not
-    # a 0th element to compare it to
-    results$leveluniformity[i] <- all(level_interval == min(level_interval,
-                                                            na.rm = TRUE),
-                                      na.rm = TRUE) 
-    
-    #Compare baro dtime with standard dtime
-    results$standardlevelmatch[i] <- all(cwldata$standard == cwldata$dtime)
-    
-    #Check baro data
-    barodata <- pullBaroData(results$filepath[i])
-    
-    baro_join <- left_join(barodata, baro, 
-                          by = "dtime") |>
-      mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
-    
-    results$barocheck[i] <- max(baro_join$baro_diff)
-    
-    #Check baro uniformity
-      #Shift the dtime one space
-      baro_lag <- lag(barodata$dtime)
-      
-      #Subtract to get a difftime - the interval between each element
-      baro_interval <- barodata$dtime - baro_lag
-      
-      #A uniform dtime interval would mean that the smallest difftime present
-      # would be the only one found in the whole set - e.g. everything is 5 mins
-        #na.rm = TRUE because the first difftime will be NA since there is not
-        # a 0th element to compare it to
-      results$barouniformity[i] <- all(baro_interval == min(baro_interval,
-                                                            na.rm = TRUE),
-                                       na.rm = TRUE) 
-    
-    #Compare baro dtime with standard dtime
-      results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
-      
-    #Unite baro and level and check that
-      joined <- left_join(barodata, cwldata, 
-                          by = c("standard_excel", "standard"),
-                          suffix = c(".baro", ".cwl"))
-      
-      #Compare baro dtime and level dtime
-      results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
+    # results$correction[i] <- infosheet$`Correction factor`
+    # 
+    # cwldata <- pullCWLData(results$filepath[i])
+    # 
+    # cwl_join <- left_join(cwldata, csvdata, 
+    #                       by = "dtime", 
+    #                       suffix = c(".excel",".csv")) |>
+    #   mutate(pres_equal = pres_psi.excel == pres_psi.csv, #NAs will return NA
+    #          temp_equal = temp_f.excel == temp_f.csv)     #and will fail check
+    # 
+    # results$csvcheck[i] <- all(all(cwl_join$pres_equal), 
+    #                            all(cwl_join$temp_equal))
+    # 
+    # #Check level uniformity
+    # #Shift the dtime one space
+    # level_lag <- lag(cwldata$dtime)
+    # 
+    # #Subtract to get a difftime - the interval between each element
+    # level_interval <- cwldata$dtime - level_lag
+    # 
+    # #A uniform dtime interval would mean that the smallest difftime present
+    # # would be the only one found in the whole set - e.g. everything is 5 mins
+    # #na.rm = TRUE because the first difftime will be NA since there is not
+    # # a 0th element to compare it to
+    # results$leveluniformity[i] <- all(level_interval == min(level_interval,
+    #                                                         na.rm = TRUE),
+    #                                   na.rm = TRUE) 
+    # 
+    # #Compare baro dtime with standard dtime
+    # results$standardlevelmatch[i] <- all(cwldata$standard == cwldata$dtime)
+    # 
+    # #Check baro data
+    # barodata <- pullBaroData(results$filepath[i])
+    # 
+    # baro_join <- left_join(barodata, baro, 
+    #                       by = "dtime") |>
+    #   mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
+    # 
+    # results$barocheck[i] <- max(baro_join$baro_diff)
+    # 
+    # #Check baro uniformity
+    #   #Shift the dtime one space
+    #   baro_lag <- lag(barodata$dtime)
+    #   
+    #   #Subtract to get a difftime - the interval between each element
+    #   baro_interval <- barodata$dtime - baro_lag
+    #   
+    #   #A uniform dtime interval would mean that the smallest difftime present
+    #   # would be the only one found in the whole set - e.g. everything is 5 mins
+    #     #na.rm = TRUE because the first difftime will be NA since there is not
+    #     # a 0th element to compare it to
+    #   results$barouniformity[i] <- all(baro_interval == min(baro_interval,
+    #                                                         na.rm = TRUE),
+    #                                    na.rm = TRUE) 
+    # 
+    # #Compare baro dtime with standard dtime
+    #   results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
+    #   
+    # #Unite baro and level and check that
+    #   joined <- left_join(barodata, cwldata, 
+    #                       by = c("standard_excel", "standard"),
+    #                       suffix = c(".baro", ".cwl"))
+    #   
+    #   #Compare baro dtime and level dtime
+    #   results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
   }
 
 results$filepath <- paste(basename(dirname(results$filepath)),
