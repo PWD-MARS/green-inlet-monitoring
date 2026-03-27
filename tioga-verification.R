@@ -63,7 +63,7 @@ pullCWLData <- function(excelfile){
   
   # standard dtime in column A, dtime in column D,
   # pressure in column E, temperature in column F
-  ### Why are we unlisting?
+  #### Why are we unlisting?
   rawdata <- data.frame(rawstandard = unlist(datasheet[2:rows, 1]),
                         rawdtime = unlist(datasheet[2:rows, 4]),
                         rawpres_psi = unlist(datasheet[2:rows, 5]),
@@ -84,14 +84,14 @@ pullCWLData <- function(excelfile){
            dtime_raw = as.POSIXct(dtime_excel * (60*60*24),
                               origin = "1899-12-30",
                               tz = "GMT")) |> #GMT TZ required to count from correct origin
-    # As previously discussed, it is not recommended to use round.POSIXt as it is a method. Please use round()
-    # I would recommend keeping it as POSIXct, so you can either wrap it with as.POSIXct or round_date() from lubridate
+    #### As previously discussed, it is not recommended to use round.POSIXt as it is a method. Please use round()
+    #### I would recommend keeping it as POSIXct, so you can either wrap it with as.POSIXct or round_date() from lubridate
     mutate(standard = round.POSIXt(standard_raw, units = "mins"),
            dtime = round.POSIXt(dtime_raw, units = "mins")) |> #Round :59 up
     select(-standard_raw, -dtime_raw)
 
   #Check for dupes
-  #### Duplicated 
+  #### This ok for 1 SMP but not necessarily for expanding to multiple
   if(any(duplicated(longdata$standard)) | any(duplicated(longdata$dtime))){
     browser()
   }
@@ -102,11 +102,13 @@ pullCWLData <- function(excelfile){
 
 pullBaroData <- function(excelfile){
   #Sheet 3 is the data sheet
+  #### This can be read in much easier using the read_xslx arguments
   datasheet <- suppressMessages(readxl::read_xlsx(excelfile, sheet = "Data"))
   rows <- nrow(datasheet) #variable for readability
   
   #Filter to only records with valid water level calculations
     #Corrected Water Depth in column 10
+  #### Please rename columns so it's not ...10
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
   #Standard dtime in column A, dtime in column B, pressure in column C
@@ -184,6 +186,7 @@ csv_import <- function(filepath){
   }
   
   #Do we have any duplicate data in the raw data files?
+  #### Do you want this to stop if running across multiple GI SMPs?
   dupes <- duplicated(csvdata$dtime)
   if(any(dupes)){
     stop("Fatal error: Duplicate datetimes in CSV data.")
@@ -191,6 +194,7 @@ csv_import <- function(filepath){
   
 #Check baro data
   #Pull appropriate baro range for the entire series
+  #### This is pulling it with tz = America/New_York and does appear to be changed to GMT
   baro <- marsFetchBaroData(poolConn, target_id = "171-2-1",
                             start_date = "2020-10-05",
                             end_date = "2025-12-31",
@@ -216,71 +220,74 @@ csv_import <- function(filepath){
   for(i in 1:2){
     #Pull correction factors
     infosheet <- pullCorrectionFactor(results$filepath[i])
-    # results$correction[i] <- infosheet$`Correction factor`
-    # 
-    # cwldata <- pullCWLData(results$filepath[i])
-    # 
-    # cwl_join <- left_join(cwldata, csvdata, 
-    #                       by = "dtime", 
-    #                       suffix = c(".excel",".csv")) |>
-    #   mutate(pres_equal = pres_psi.excel == pres_psi.csv, #NAs will return NA
-    #          temp_equal = temp_f.excel == temp_f.csv)     #and will fail check
-    # 
-    # results$csvcheck[i] <- all(all(cwl_join$pres_equal), 
-    #                            all(cwl_join$temp_equal))
-    # 
-    # #Check level uniformity
-    # #Shift the dtime one space
-    # level_lag <- lag(cwldata$dtime)
-    # 
-    # #Subtract to get a difftime - the interval between each element
-    # level_interval <- cwldata$dtime - level_lag
-    # 
-    # #A uniform dtime interval would mean that the smallest difftime present
-    # # would be the only one found in the whole set - e.g. everything is 5 mins
-    # #na.rm = TRUE because the first difftime will be NA since there is not
-    # # a 0th element to compare it to
-    # results$leveluniformity[i] <- all(level_interval == min(level_interval,
-    #                                                         na.rm = TRUE),
-    #                                   na.rm = TRUE) 
-    # 
-    # #Compare baro dtime with standard dtime
-    # results$standardlevelmatch[i] <- all(cwldata$standard == cwldata$dtime)
-    # 
-    # #Check baro data
-    # barodata <- pullBaroData(results$filepath[i])
-    # 
-    # baro_join <- left_join(barodata, baro, 
-    #                       by = "dtime") |>
-    #   mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
-    # 
-    # results$barocheck[i] <- max(baro_join$baro_diff)
-    # 
-    # #Check baro uniformity
-    #   #Shift the dtime one space
-    #   baro_lag <- lag(barodata$dtime)
-    #   
-    #   #Subtract to get a difftime - the interval between each element
-    #   baro_interval <- barodata$dtime - baro_lag
-    #   
-    #   #A uniform dtime interval would mean that the smallest difftime present
-    #   # would be the only one found in the whole set - e.g. everything is 5 mins
-    #     #na.rm = TRUE because the first difftime will be NA since there is not
-    #     # a 0th element to compare it to
-    #   results$barouniformity[i] <- all(baro_interval == min(baro_interval,
-    #                                                         na.rm = TRUE),
-    #                                    na.rm = TRUE) 
-    # 
-    # #Compare baro dtime with standard dtime
-    #   results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
-    #   
-    # #Unite baro and level and check that
-    #   joined <- left_join(barodata, cwldata, 
-    #                       by = c("standard_excel", "standard"),
-    #                       suffix = c(".baro", ".cwl"))
-    #   
-    #   #Compare baro dtime and level dtime
-    #   results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
+    #### Why are we using not standard column names?
+    results$correction[i] <- infosheet$`Correction factor`
+
+    cwldata <- pullCWLData(results$filepath[i])
+
+    cwl_join <- left_join(cwldata, csvdata,
+                          by = "dtime",
+                          suffix = c(".excel",".csv")) |>
+      mutate(pres_equal = pres_psi.excel == pres_psi.csv, #NAs will return NA
+             temp_equal = temp_f.excel == temp_f.csv)     #and will fail check
+    
+    results$csvcheck[i] <- all(all(cwl_join$pres_equal),
+                               all(cwl_join$temp_equal))
+
+    #Check level uniformity
+    #Shift the dtime one space
+    level_lag <- lag(cwldata$dtime)
+
+    #Subtract to get a difftime - the interval between each element
+    level_interval <- cwldata$dtime - level_lag
+
+    #A uniform dtime interval would mean that the smallest difftime present
+    # would be the only one found in the whole set - e.g. everything is 5 mins
+    #na.rm = TRUE because the first difftime will be NA since there is not
+    # a 0th element to compare it to
+    results$leveluniformity[i] <- all(level_interval == min(level_interval,
+                                                            na.rm = TRUE),
+                                      na.rm = TRUE)
+
+    #Compare baro dtime with standard dtime
+    results$standardlevelmatch[i] <- all(cwldata$standard == cwldata$dtime)
+
+    #Check baro data
+    #### What does check baro mean? Just the max 
+    barodata <- pullBaroData(results$filepath[i])
+
+    baro_join <- left_join(barodata, baro,
+                          by = "dtime") |>
+       mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
+    #### The baro check is the max percent difference?
+    results$barocheck[i] <- max(baro_join$baro_diff)
+
+    #Check baro uniformity
+      #Shift the dtime one space
+      baro_lag <- lag(barodata$dtime)
+
+      #Subtract to get a difftime - the interval between each element
+      baro_interval <- barodata$dtime - baro_lag
+
+      #A uniform dtime interval would mean that the smallest difftime present
+      # would be the only one found in the whole set - e.g. everything is 5 mins
+        #na.rm = TRUE because the first difftime will be NA since there is not
+        # a 0th element to compare it to
+      results$barouniformity[i] <- all(baro_interval == min(baro_interval,
+                                                            na.rm = TRUE),
+                                       na.rm = TRUE)
+
+    #Compare baro dtime with standard dtime
+      results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
+
+    #Unite baro and level and check that
+      joined <- left_join(barodata, cwldata,
+                          by = c("standard_excel", "standard"),
+                          #### Why are we putting . in the column names? 
+                          suffix = c(".baro", ".cwl"))
+
+      #Compare baro dtime and level dtime
+      results$barolevelmatch[i] <- all(joined$dtime.baro == joined$dtime.cwl)
   }
 
 results$filepath <- paste(basename(dirname(results$filepath)),
