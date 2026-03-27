@@ -58,6 +58,7 @@ pullCWLData <- function(excelfile){
   
   #Filter to only records with valid corrected water level calculations
   #Corrected Water Depth in column 10
+  #### Please use tidy syntax
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
   
@@ -71,6 +72,7 @@ pullCWLData <- function(excelfile){
 
   #Process data for checks later
   #### Why filter complete cases if we are only keeping valid corrected water depths?
+  #### Please use tidy syntax
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
     transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
               dtime_excel = as.numeric(rawdtime), #Excel floating point
@@ -109,6 +111,7 @@ pullBaroData <- function(excelfile){
   #Filter to only records with valid water level calculations
     #Corrected Water Depth in column 10
   #### Please rename columns so it's not ...10
+  #### Please use tidy syntax
   datasheet <- filter(datasheet, !is.na(datasheet$...10))
   
   #Standard dtime in column A, dtime in column B, pressure in column C
@@ -117,6 +120,7 @@ pullBaroData <- function(excelfile){
                        rawpres_psi = unlist(datasheet[2:rows, 3]))
 
   #Process data for checks later
+  #### Please use tidy syntax
   longdata <- filter(rawdata, complete.cases(rawdata)) |> #Trim NAs
     transmute(standard_excel = as.numeric(rawstandard), #Excel floating point
               dtime_excel = as.numeric(rawdtime), #Excel floating point
@@ -161,6 +165,7 @@ csv_import <- function(filepath){
   #Filter out any records without samples
   file_raw <- file_raw[complete.cases(file_raw),]
 
+  #### This is good use of tidy syntax
   file_parsed <- file_raw %>%
     mutate(dtime = parse_date_time(dtime_raw, c("%m/%d/%y %I:%M:%S %p",
                                                     "%m/%d/%Y %H:%M:%S",
@@ -224,9 +229,11 @@ csv_import <- function(filepath){
     results$correction[i] <- infosheet$`Correction factor`
 
     cwldata <- pullCWLData(results$filepath[i])
-
+    #### We should make sure these data format (POSIXct/lt) and tz are the same before joining
+    #### Please use tidy syntax
     cwl_join <- left_join(cwldata, csvdata,
                           by = "dtime",
+                          #### Why are we putting . in the column names? 
                           suffix = c(".excel",".csv")) |>
       mutate(pres_equal = pres_psi.excel == pres_psi.csv, #NAs will return NA
              temp_equal = temp_f.excel == temp_f.csv)     #and will fail check
@@ -255,7 +262,7 @@ csv_import <- function(filepath){
     #Check baro data
     #### What does check baro mean? Just the max 
     barodata <- pullBaroData(results$filepath[i])
-
+    #### Please use tidy syntax
     baro_join <- left_join(barodata, baro,
                           by = "dtime") |>
        mutate(baro_diff = (pres_psi/baro_psi - 1) * 100)
@@ -281,6 +288,7 @@ csv_import <- function(filepath){
       results$standardbaromatch[i] <- all(barodata$standard == barodata$dtime)
 
     #Unite baro and level and check that
+      #### Please use tidy syntax
       joined <- left_join(barodata, cwldata,
                           by = c("standard_excel", "standard"),
                           #### Why are we putting . in the column names? 
