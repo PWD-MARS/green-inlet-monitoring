@@ -7,7 +7,7 @@ library(openxlsx)
 
 options(stringsAsFactors=FALSE)
 
-setwd("C:/Users/Monica.Gucciardi/Documents/github/db-audit/CWL Audit for All Sites")
+setwd("C:/Users/Monica.Gucciardi/Documents/github/green-inlet-monitoring/Head Differentials")
 
 #Connect to the MARS database
 marsDBCon <- tryCatch({
