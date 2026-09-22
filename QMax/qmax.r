@@ -69,3 +69,6 @@ qmax_noslope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) 
   mutate(qmax_2026_cfs = qmax_perfoot_2026_cfs * length_ft,
          qmax_vusp_cfs = qmax_perfoot_vusp_cfs * length_ft)
 
+write_csv(qmax_noslope, file = "./QMax/qmax_noslope.csv")
+
+
