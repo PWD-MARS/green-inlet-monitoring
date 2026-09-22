@@ -1,9 +1,9 @@
-smp_id, ow_suffix, grate_elev, path
-1-1-1, GI1, 78.72, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50005_SMP 1-1-1.pdf"
-171-1-1, GI1, 120.75, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50030_SMP 171-1-1.pdf"
-1-3-1, GI1, 81.66,"\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50005_SMP 1-3-1.pdf"
-171-2-1, GI1, 118.92, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50030_SMP 171-2-1.pdf"
-179-5-1, GI1, 332.49, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\Supplements\WN 50029_SMP 179-5-1.pdf"
-1006-1-1, GI2, 41.24, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 20458_SMP 1006-1-1.pdf"
-488-5-1, GI1, 27.02, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50155_SMP 488-5-1.pdf"
-439-1-1, GI1, 78.77, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50053_SMP 439-1-1.pdf"
+smp_id, ow_suffix, grate_elev, inv_elev, vusp_grate_elev, path
+1-1-1, GI1, 78.72, 75.39, 78.89, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50005_SMP 1-1-1.pdf"
+171-1-1, GI1, 120.75, 118.16, 120.97, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50030_SMP 171-1-1.pdf"
+1-3-1, GI1, 81.66, 78.26, 81.64, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50005_SMP 1-3-1.pdf"
+171-2-1, GI1, 118.92, 116.31, 119.11, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50030_SMP 171-2-1.pdf"
+179-5-1, GI1, 332.49, 328.69, 332.36, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\Supplements\WN 50029_SMP 179-5-1.pdf"
+1006-1-1, GI2, 41.24, 37.60, 41.38, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 20458_SMP 1006-1-1.pdf"
+488-5-1, GI1, 27.02, 24.75, 27.10, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50155_SMP 488-5-1.pdf"
+439-1-1, GI1, 78.77, 75.50, 79.00, "\\pwdoows\oows\Watershed Sciences\GSI Monitoring\06 Special Projects\65 Land Survey Needs\Survey Records\WN 50053_SMP 439-1-1.pdf"
