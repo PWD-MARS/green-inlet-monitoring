@@ -1,6 +1,7 @@
 #Calculating theoretical maximum outflow at different system characteristics
 
 library(readxl)
+library(openxlsx)
 library(tidyverse)
 #Read spreadsheet values
 pipetool <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/References/Pipe Perforations/ADS Distribution Pipe Sizing Tool.xls"
@@ -43,3 +44,28 @@ flowrates_morrisleeds <- data.frame(head_ft = seq(0, 6, by = 0.5)) |>
          
 
 #Turns out that the equation can be aggregated and still be valid, so I will calculate it at the per foot level
+
+#Qmax for Monitored Sites without slope considerations
+#Required stats include
+  # Inlet grate elevation
+  # Distribution pipe invert elevation
+  # Slope if applicable
+  # Length
+  # Diameter
+#Slope, length, and diameter are all in the system characteristics sheet
+syscharsheet <- "//pwdoows/oows/Watershed Sciences/GSI Monitoring/06 Special Projects/40 Green Inlet Monitoring/MARS Analysis/SystemCharacteristics.xlsx"
+
+pipestats<- read.xlsx(xlsxFile = syscharsheet,
+                                  sheet = "Characteristics") |>
+  transmute(smp_id, ow_suffix = GI, length_ft = `Distrib..Length.(FT)`,
+         diam_in = `Distrib..Size`, slope_pct = `Distrib..Slope.(%)`/100) 
+
+inletstats <- read_csv("./gi_survey_elev.csv")
+
+qmax_noslope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
+  left_join(aashtotable, by = "diam_in") |>
+  mutate(qmax_perfoot_2026_cfs = perfarea_ft2ft * 0.62 * sqrt(2 * 32.2 * (grate_elev - inv_elev - diam_in/24)),
+         qmax_perfoot_vusp_cfs = perfarea_ft2ft * 0.56 * sqrt(2 * 32.2 * (vusp_grate_elev - inv_elev - diam_in/24))) |>
+  mutate(qmax_2026_cfs = qmax_perfoot_2026_cfs * length_ft,
+         qmax_vusp_cfs = qmax_perfoot_vusp_cfs * length_ft)
+
