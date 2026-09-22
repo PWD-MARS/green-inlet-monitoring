@@ -71,4 +71,67 @@ qmax_noslope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) 
 
 write_csv(qmax_noslope, file = "./QMax/qmax_noslope.csv")
 
+#Qmax estimate with slope consideration
+qmax_estimate_cfs <- function(perfarea_ft2ft,
+                          discharge_coef,
+                          grate_elev,
+                          inv_elev,
+                          diam_in,
+                          length_ft,
+                          slope_pct = 0) {
+  if(length_ft < 1){
+    stop("Minimum pipe length of 1 foot")
+  }
+  
+  qmax_estimate_cfs <- 0
+  
+  #If not sloped, calculate all at once. If sloped, iterate by foot
+  if(slope_pct == 0){
+    #Not sloped, calculate all at once
+    qmax_estimate_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - inv_elev - diam_in/24)) * length_ft
+    return(qmax_estimate_cfs)
+  } else {
+    for(i in 1:round(length_ft, 0)){ #If non-integer, we will add the partial step at the end
+      #Calculate the outflow at qmax of the i'th foot of the distribution pipe
+      
+      #Effective invert of this pipe segment
+      segment_inv_elev <- inv_elev + i * slope_pct #feet of change per foot of pipe
+      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev - diam_in/24))
+      
+      qmax_estimate_cfs <- qmax_estimate_cfs + segment_qmax_cfs
+    }
+    
+    #Loop is done; add remainder segment if present
+    if(length_ft %% 1 == 0){ #If pipe is integer feet in length
+      return(qmax_estimate_cfs)
+    } else {
+      segment_length_ft <- length_ft %% 1 #Length of leftover pipe segment
+      segment_inv_elev <- inv_elev + round(length_ft, 0) * slope_pct #effective invert at final pipe segment
+      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev - diam_in/24)) * segment_length_ft
+      
+      qmax_estimate_cfs <- qmax_estimate_cfs + segment_qmax_cfs
+    }
+    
+    return(qmax_estimate_cfs)
+  }
+}
 
+qmax_slope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
+  left_join(aashtotable, by = "diam_in") |> 
+  rowwise() |>
+  mutate(qmax_2026_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
+                                           discharge_coef = 0.62,
+                                           grate_elev = grate_elev,
+                                           inv_elev = inv_elev,
+                                           diam_in = diam_in,
+                                           length_ft = length_ft,
+                                           slope_pct = slope_pct),
+         qmax_vusp_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
+                                           discharge_coef = 0.56,
+                                           grate_elev = vusp_grate_elev,
+                                           inv_elev = inv_elev,
+                                           diam_in = diam_in,
+                                           length_ft = length_ft,
+                                           slope_pct = slope_pct))
+  
+write_csv(qmax_slope, file = "./QMax/qmax_slope.csv")
