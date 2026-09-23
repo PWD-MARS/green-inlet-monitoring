@@ -43,7 +43,8 @@ flowrates_morrisleeds <- data.frame(head_ft = seq(0, 6, by = 0.5)) |>
                      all.equal(summed_perperf, summed_perpipe))
          
 
-#Turns out that the equation can be aggregated and still be valid, so I will calculate it at the per foot level
+#Turns out that the equation can be aggregated and still be valid, 
+  #so I will calculate it at the per foot level to allow for slope considerations
 
 #Qmax for Monitored Sites without slope considerations
 #Required stats include
@@ -119,14 +120,14 @@ qmax_estimate_cfs <- function(perfarea_ft2ft,
 qmax_slope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
   left_join(aashtotable, by = "diam_in") |> 
   rowwise() |>
-  mutate(qmax_2026_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
+  mutate(slopeqmax_2026_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
                                            discharge_coef = 0.62,
                                            grate_elev = grate_elev,
                                            inv_elev = inv_elev,
                                            diam_in = diam_in,
                                            length_ft = length_ft,
                                            slope_pct = slope_pct),
-         qmax_vusp_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
+         slopeqmax_vusp_cfs = qmax_estimate_cfs(perfarea_ft2ft = perfarea_ft2ft,
                                            discharge_coef = 0.56,
                                            grate_elev = vusp_grate_elev,
                                            inv_elev = inv_elev,
@@ -135,3 +136,13 @@ qmax_slope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
                                            slope_pct = slope_pct))
   
 write_csv(qmax_slope, file = "./QMax/qmax_slope.csv")
+
+#Validating that the unsloped pipes have the same discharge in the second run
+val <- left_join(qmax_slope, qmax_noslope) |>
+  mutate(slopecheck_2026 = ifelse(slope_pct != 0, 
+                                  !isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs)),
+                                  isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs))),
+         slopecheck_vusp = ifelse(slope_pct != 0, 
+                                  !isTRUE(all.equal(slopeqmax_vusp_cfs, qmax_vusp_cfs)),
+                                  isTRUE(all.equal(slopeqmax_vusp_cfs, qmax_vusp_cfs))))
+
