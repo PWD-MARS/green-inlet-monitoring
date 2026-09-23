@@ -31,13 +31,17 @@ morrisleeds <- data.frame(length_ft = 270,
 
 #Flow rates at incremental head
 flowrates_morrisleeds <- data.frame(head_ft = seq(0, 6, by = 0.5)) |>
+  #Orifice flow equation:
+    # Q = Area * Discharge coefficient * square root of (2 * gravitational constant * (Head over midpoint of pipe))
+  #Calculate this at three levels of aggregation: Per perforation, per linear foot, and for the entire pipe at once
   mutate(flowrate_perperf = morrisleeds$perfarea_ft2perf * 0.62 * sqrt(2 * 32.2 * (head_ft + morrisleeds$diam_ft/2)),
          flowrate_perfoot = morrisleeds$perfarea_ft2ft * 0.62 * sqrt(2 * 32.2 * (head_ft + morrisleeds$diam_ft/2)),
          flowrate_perpipe = morrisleeds$perfarea_ft2ft * morrisleeds$length_ft * 0.62 * sqrt(2 * 32.2 * (head_ft + morrisleeds$diam_ft/2))) |>
   group_by(head_ft) |>
-  summarize(summed_perperf = flowrate_perperf * morrisleeds$perforations_per_ft * morrisleeds$length_ft,
-            summed_perfoot = flowrate_perfoot * morrisleeds$length_ft,
-            summed_perpipe = flowrate_perpipe) |>
+  #Sum all of the values across the entire pipe to see if they differ
+  summarize(summed_perperf = flowrate_perperf * morrisleeds$perforations_per_ft * morrisleeds$length_ft, #Flow per perforation * perfs per foot * length
+            summed_perfoot = flowrate_perfoot * morrisleeds$length_ft, #Flow per foot * length
+            summed_perpipe = flowrate_perpipe) |> #Already aggregated for the whole pipe
   mutate(identical = all.equal(summed_perperf, summed_perfoot) & #Test for floating point equality
                      all.equal(summed_perfoot, summed_perpipe) &
                      all.equal(summed_perperf, summed_perpipe))
@@ -65,7 +69,10 @@ inletstats <- read_csv("./gi_survey_elev.csv")
 
 qmax_noslope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
   left_join(aashtotable, by = "diam_in") |>
+  
   mutate(qmax_perfoot_2026_cfs = perfarea_ft2ft * 0.62 * sqrt(2 * 32.2 * (grate_elev - inv_elev - diam_in/24)),
+         
+         #Brian used 0.56 for the discharge coefficient, but asking around, I couldn't find a good reason why.
          qmax_perfoot_vusp_cfs = perfarea_ft2ft * 0.56 * sqrt(2 * 32.2 * (vusp_grate_elev - inv_elev - diam_in/24))) |>
   mutate(qmax_2026_cfs = qmax_perfoot_2026_cfs * length_ft,
          qmax_vusp_cfs = qmax_perfoot_vusp_cfs * length_ft)
@@ -137,12 +144,19 @@ qmax_slope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
   
 write_csv(qmax_slope, file = "./QMax/qmax_slope.csv")
 
-#Validating that the unsloped pipes have the same discharge in the second run
+#Validating the sloped run
 val <- left_join(qmax_slope, qmax_noslope) |>
   mutate(slopecheck_2026 = ifelse(slope_pct != 0, 
-                                  !isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs)),
-                                  isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs))),
+                                  !isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs)), #Check that sloped pipes have different results
+                                  isTRUE(all.equal(slopeqmax_2026_cfs, qmax_2026_cfs))), #
          slopecheck_vusp = ifelse(slope_pct != 0, 
                                   !isTRUE(all.equal(slopeqmax_vusp_cfs, qmax_vusp_cfs)),
                                   isTRUE(all.equal(slopeqmax_vusp_cfs, qmax_vusp_cfs))))
 
+#They do!
+#Coalesce the values
+qmax_final <- left_join(qmax_slope, qmax_noslope) |>
+  mutate(vuspdiff_cfs = qmax_2026_cfs - qmax_vusp_cfs,
+         slope_vuspdiff_cfs = slopeqmax_2026_cfs - qmax_vusp_cfs)
+
+write_csv(qmax_final, file = "qmax_final.csv")
