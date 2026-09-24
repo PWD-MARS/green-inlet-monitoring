@@ -70,10 +70,10 @@ inletstats <- read_csv("./gi_survey_elev.csv")
 qmax_noslope <- left_join(pipestats, inletstats, by = c("smp_id", "ow_suffix")) |>
   left_join(aashtotable, by = "diam_in") |>
   
-  mutate(qmax_perfoot_2026_cfs = perfarea_ft2ft * 0.62 * sqrt(2 * 32.2 * (grate_elev - inv_elev - diam_in/24)),
+  mutate(qmax_perfoot_2026_cfs = perfarea_ft2ft * 0.62 * sqrt(2 * 32.2 * (grate_elev - inv_elev + diam_in/24)),
          
          #Brian used 0.56 for the discharge coefficient, but asking around, I couldn't find a good reason why.
-         qmax_perfoot_vusp_cfs = perfarea_ft2ft * 0.56 * sqrt(2 * 32.2 * (vusp_grate_elev - inv_elev - diam_in/24))) |>
+         qmax_perfoot_vusp_cfs = perfarea_ft2ft * 0.56 * sqrt(2 * 32.2 * (vusp_grate_elev - inv_elev + diam_in/24))) |>
   mutate(qmax_2026_cfs = qmax_perfoot_2026_cfs * length_ft,
          qmax_vusp_cfs = qmax_perfoot_vusp_cfs * length_ft)
 
@@ -96,7 +96,7 @@ qmax_estimate_cfs <- function(perfarea_ft2ft,
   #If not sloped, calculate all at once. If sloped, iterate by foot
   if(slope_pct == 0){
     #Not sloped, calculate all at once
-    qmax_estimate_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - inv_elev - diam_in/24)) * length_ft
+    qmax_estimate_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - inv_elev + diam_in/24)) * length_ft
     return(qmax_estimate_cfs)
   } else {
     for(i in 1:round(length_ft, 0)){ #If non-integer, we will add the partial step at the end
@@ -104,7 +104,7 @@ qmax_estimate_cfs <- function(perfarea_ft2ft,
       
       #Effective invert of this pipe segment
       segment_inv_elev <- inv_elev + i * slope_pct #feet of change per foot of pipe
-      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev - diam_in/24))
+      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev + diam_in/24))
       
       qmax_estimate_cfs <- qmax_estimate_cfs + segment_qmax_cfs
     }
@@ -115,7 +115,7 @@ qmax_estimate_cfs <- function(perfarea_ft2ft,
     } else {
       segment_length_ft <- length_ft %% 1 #Length of leftover pipe segment
       segment_inv_elev <- inv_elev + round(length_ft, 0) * slope_pct #effective invert at final pipe segment
-      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev - diam_in/24)) * segment_length_ft
+      segment_qmax_cfs <- perfarea_ft2ft * discharge_coef * sqrt(2 * 32.2 * (grate_elev - segment_inv_elev + diam_in/24)) * segment_length_ft
       
       qmax_estimate_cfs <- qmax_estimate_cfs + segment_qmax_cfs
     }
@@ -159,4 +159,4 @@ qmax_final <- left_join(qmax_slope, qmax_noslope) |>
   mutate(vuspdiff_cfs = qmax_2026_cfs - qmax_vusp_cfs,
          slope_vuspdiff_cfs = slopeqmax_2026_cfs - qmax_vusp_cfs)
 
-write_csv(qmax_final, file = "/QMax/qmax_final.csv")
+write_csv(qmax_final, file = "./QMax/qmax_final.csv")
